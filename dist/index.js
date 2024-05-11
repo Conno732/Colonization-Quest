@@ -39,9 +39,7 @@ function drawHexagonGrid(startX, startY, size, width, height, grid) {
                 drawHexagon(startX + Math.sqrt(3) * size * column, startY + size * 1.5 * row, size, tile);
             }
             else {
-                drawHexagon(startX +
-                    Math.sqrt(3) * size * column +
-                    Math.sqrt(3) * size * 0.5, startY + size * 1.5 * row, size, tile);
+                drawHexagon(startX + Math.sqrt(3) * size * column + Math.sqrt(3) * size * 0.5, startY + size * 1.5 * row, size, tile);
             }
         }
     }
@@ -55,6 +53,20 @@ var ResourceType;
     ResourceType["WOOD"] = "brown";
     ResourceType["DESERT"] = "yellow";
 })(ResourceType || (ResourceType = {}));
+const resourceTileWeights = [
+    { resource: ResourceType.CONCRETE, weight: 0.2 },
+    { resource: ResourceType.SPICE, weight: 0.25 },
+    { resource: ResourceType.ANIMAL, weight: 0.2 },
+    { resource: ResourceType.METAL, weight: 0.15 },
+    { resource: ResourceType.WOOD, weight: 0.15 },
+    { resource: ResourceType.DESERT, weight: 0.05 },
+];
+const weightedResourceTable = [];
+for (let j = 0; j < resourceTileWeights.length; j++) {
+    for (let i = 0; i < resourceTileWeights[j].weight * 100; i++) {
+        weightedResourceTable.push(resourceTileWeights[j].resource);
+    }
+}
 class Building {
 }
 class Tile {
@@ -79,8 +91,9 @@ class TileGrid {
                     this.grid[row].push(null);
                 }
                 else {
-                    const randomKey = enumKeys[Math.floor(Math.random() * enumKeys.length)];
-                    this.grid[row].push(new Tile(ResourceType[randomKey], false, Math.floor(Math.random() * 11) + 2));
+                    const resource = weightedResourceTable[Math.floor(Math.random() * 100)];
+                    console.log();
+                    this.grid[row].push(new Tile(resource, false, Math.floor(Math.random() * 11) + 2));
                 }
             }
         }
