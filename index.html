@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Game Canvas</title>
+        <style>
+            body,
+            html {
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+            }
+
+            canvas {
+                display: block;
+                background-color: #000;
+                margin: 0 auto;
+                border: 0px solid #ccc;
+            }
+
+            #container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100%;
+                width: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="container">
+            <canvas id="gameCanvas"></canvas>
+        </div>
+    </body>
+    <script src="dist/index.js"></script>
+</html>

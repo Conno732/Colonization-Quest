@@ -1,0 +1,17 @@
+{
+    "name": "colonization-quest",
+    "description": "NOT Settlers of Catan",
+    "version": "1.0.0",
+    "main": "index.js",
+    "devDependencies": {
+        "ts-node": "^10.9.2",
+        "typescript": "^5.4.5"
+    },
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "build": "tsc --build",
+        "clean": "tsc --build --clean"
+    },
+    "author": "",
+    "license": "ISC"
+}
