@@ -9,25 +9,44 @@ canvas.style.width = "1080px";
 canvas.style.height = "720px";
 
 function drawHexagon(x: number, y: number, size: number) {
+    const angle = Math.PI / 3;
+    ctx.moveTo(x - size * Math.sin(angle), y + size * Math.cos(angle));
     ctx.beginPath();
-    ctx.moveTo(x + size * Math.cos(0), y + size * Math.sin(0));
-
-    for (let i = 1; i <= 6; i++) {
-        ctx.lineTo(
-            x + size * Math.cos((i * 2 * Math.PI) / 6),
-            y + size * Math.sin((i * 2 * Math.PI) / 6)
-        );
+    for (let i = 0; i < 6; i++) {
+        const angle = Math.PI / 3 + (i * Math.PI) / 3;
+        ctx.lineTo(x - size * Math.sin(angle), y + size * Math.cos(angle));
     }
 
     ctx.closePath();
+    ctx.fillStyle = "blue";
     ctx.strokeStyle = "#ffffff";
     ctx.stroke();
+    ctx.fill();
 }
 
-const hexagonSize: number = 50;
-const hexagonX: number = canvas.width / 2;
-const hexagonY: number = canvas.height / 2;
-drawHexagon(hexagonX, hexagonY, hexagonSize);
+function drawHexagonGrid(startX, startY, size, rows, columns) {
+    for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+            if (row % 2 == 0) {
+                drawHexagon(
+                    startX + Math.sqrt(3) * size * column,
+                    startY + size * 1.5 * row,
+                    size
+                );
+            } else {
+                drawHexagon(
+                    startX +
+                        Math.sqrt(3) * size * column +
+                        Math.sqrt(3) * size * 0.5,
+                    startY + size * 1.5 * row,
+                    size
+                );
+            }
+        }
+    }
+}
+
+drawHexagonGrid(100, 100, 25, 5, 5);
 
 enum ResourceType {
     CONCRETE,
@@ -42,6 +61,9 @@ enum ResourceType {
 class Building {}
 
 class TileGrid {
+    width: number;
+    height: number;
+
     constructor() {}
 }
 
