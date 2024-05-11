@@ -8,7 +8,7 @@ canvas.height = 720;
 canvas.style.width = "1080px";
 canvas.style.height = "720px";
 
-function drawHexagon(x: number, y: number, size: number) {
+function drawHexagon(x: number, y: number, size: number, tile: Tile) {
     const angle = Math.PI / 3;
     ctx.moveTo(x - size * Math.sin(angle), y + size * Math.cos(angle));
     ctx.beginPath();
@@ -18,20 +18,37 @@ function drawHexagon(x: number, y: number, size: number) {
     }
 
     ctx.closePath();
-    ctx.fillStyle = "blue";
+    ctx.fillStyle = tile.resourceType;
     ctx.strokeStyle = "#ffffff";
+
     ctx.stroke();
     ctx.fill();
+
+    let text = tile.rollNumber.toString();
+    if (tile.hasRobber) {
+        text = "R";
+    } else if (tile.rollNumber == -1) {
+        text = "";
+    }
+
+    ctx.font = "30px Arial";
+    ctx.fillStyle = "white";
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 2;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
 }
 
-function drawHexagonGrid(startX, startY, size, rows, columns) {
-    for (let row = 0; row < rows; row++) {
-        for (let column = 0; column < columns; column++) {
+function drawHexagonGrid(startX, startY, size, width, height, grid: TileGrid) {
+    for (let row = 0; row < height; row++) {
+        for (let column = 0; column < width; column++) {
+            const tile = grid.getTileStd(row, column);
             if (row % 2 == 0) {
                 drawHexagon(
                     startX + Math.sqrt(3) * size * column,
                     startY + size * 1.5 * row,
-                    size
+                    size,
+                    tile
                 );
             } else {
                 drawHexagon(
@@ -39,37 +56,26 @@ function drawHexagonGrid(startX, startY, size, rows, columns) {
                         Math.sqrt(3) * size * column +
                         Math.sqrt(3) * size * 0.5,
                     startY + size * 1.5 * row,
-                    size
+                    size,
+                    tile
                 );
             }
         }
     }
 }
 
-drawHexagonGrid(100, 100, 25, 5, 5);
-
 enum ResourceType {
-    CONCRETE,
-    SPICE,
-    ANIMAL,
-    METAL,
-    WOOD,
-    DESERT,
-    NONE,
+    CONCRETE = "gray",
+    SPICE = "orange",
+    ANIMAL = "green",
+    METAL = "lightgray",
+    WOOD = "brown",
+    DESERT = "yellow",
 }
 
 class Building {}
 
-class TileGrid {
-    width: number;
-    height: number;
-
-    constructor() {}
-}
-
 class Tile {
-    xGridCoord: number;
-    yGridCoord: number;
     resourceType: ResourceType;
     hasRobber: boolean;
     rollNumber: number;
@@ -77,14 +83,10 @@ class Tile {
     roads: boolean | null[];
 
     constructor(
-        xGridCoord: number,
-        yGridCoord: number,
         resourceType: ResourceType,
         hasRobber: boolean,
         rollNumber: number
     ) {
-        this.xGridCoord = xGridCoord;
-        this.yGridCoord = yGridCoord;
         this.resourceType = resourceType;
         this.hasRobber = hasRobber;
         this.rollNumber = rollNumber;
@@ -94,3 +96,43 @@ class Tile {
         this.roads = [null, null, null, null, null, null];
     }
 }
+
+class TileGrid {
+    grid: Tile[][];
+
+    constructor(width: number, height: number) {
+        const enumKeys = Object.keys(ResourceType);
+        this.grid = [];
+        for (let row = 0; row < height; row++) {
+            this.grid.push([]);
+            for (let col = 0; col < width * 2; col++) {
+                if ((row + col) % 2 == 1) {
+                    this.grid[row].push(null);
+                } else {
+                    const randomKey =
+                        enumKeys[Math.floor(Math.random() * enumKeys.length)];
+
+                    this.grid[row].push(
+                        new Tile(
+                            ResourceType[randomKey],
+                            false,
+                            Math.floor(Math.random() * 11) + 2
+                        )
+                    );
+                }
+            }
+        }
+        console.log(this.grid);
+    }
+
+    getTileStd(row: number, col: number): Tile {
+        if (row % 2 == 0) return this.grid[row][col * 2];
+        return this.grid[row][col * 2 + 1];
+    }
+}
+
+const width = 7;
+const height = 5;
+
+const grid = new TileGrid(width, height);
+drawHexagonGrid(250, 200, 50, width, height, grid);
