@@ -15,6 +15,15 @@ function drawHexagon(x: number, y: number, size: number, tile: Tile) {
   for (let i = 0; i < 6; i++) {
     const angle = Math.PI / 3 + (i * Math.PI) / 3;
     ctx.lineTo(x - size * Math.sin(angle), y + size * Math.cos(angle));
+
+    if (tile.settlements[i]) {
+      ctx.fillRect(
+        x - size * Math.sin(angle) - 10,
+        y + size * Math.cos(angle) - 10,
+        20,
+        20
+      );
+    }
   }
 
   ctx.closePath();
@@ -39,6 +48,23 @@ function drawHexagon(x: number, y: number, size: number, tile: Tile) {
   ctx.fillText(text, x, y);
 }
 
+function drawSettlements(x: number, y: number, size: number, tile: Tile) {
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.PI / 3 + (i * Math.PI) / 3;
+    ctx.moveTo(x - size * Math.sin(angle), y + size * Math.cos(angle));
+    if (tile.settlements[i] != null) {
+      ctx.fillStyle = tile.settlements[i].color;
+      ctx.fillRect(
+        x - size * Math.sin(angle) - 10,
+        y + size * Math.cos(angle) - 10,
+        20,
+        20
+      );
+    }
+  }
+}
+function drawRoads() {}
+
 function drawHexagonGrid(startX, startY, size, width, height, grid: TileGrid) {
   for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
@@ -60,6 +86,27 @@ function drawHexagonGrid(startX, startY, size, width, height, grid: TileGrid) {
       }
     }
   }
+
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      const tile = grid.getTileStd(row, column);
+      if (row % 2 == 0) {
+        drawSettlements(
+          startX + Math.sqrt(3) * size * column,
+          startY + size * 1.5 * row,
+          size,
+          tile
+        );
+      } else {
+        drawSettlements(
+          startX + Math.sqrt(3) * size * column + Math.sqrt(3) * size * 0.5,
+          startY + size * 1.5 * row,
+          size,
+          tile
+        );
+      }
+    }
+  }
 }
 
 enum ResourceType {
@@ -69,6 +116,13 @@ enum ResourceType {
   METAL = "lightgray",
   WOOD = "brown",
   DESERT = "yellow",
+}
+
+enum PlayerColors {
+  WHITE = "white",
+  RED = "red",
+  BLACK = "black",
+  GREEN = "green",
 }
 
 const resourceTileWeights = [
@@ -88,14 +142,28 @@ for (let j = 0; j < resourceTileWeights.length; j++) {
   }
 }
 
-class Building {}
+class Building {
+  isCity: boolean;
+  color: PlayerColors;
+  constructor(color: PlayerColors) {
+    this.color = color;
+    this.isCity = false;
+  }
+}
+
+class Road {
+  color: PlayerColors;
+  constructor(color: PlayerColors) {
+    this.color = color;
+  }
+}
 
 class Tile {
   resourceType: ResourceType;
   hasRobber: boolean;
   rollNumber: number;
-  settlements: Building | null[];
-  roads: boolean | null[];
+  settlements: Building[] | null[];
+  roads: boolean[] | null[];
 
   constructor(
     resourceType: ResourceType,
@@ -106,27 +174,45 @@ class Tile {
     this.hasRobber = hasRobber;
     this.rollNumber = rollNumber;
     // 6 entries, first is top right, then goes clockwise
-    this.settlements = [null, null, null, null, null, null];
+    this.settlements = [
+      new Building(PlayerColors.BLACK),
+      null,
+      null,
+      null,
+      null,
+      null,
+    ];
     // 6 entries, first is top right, then goes clockwise
     this.roads = [null, null, null, null, null, null];
   }
 }
 
 class TileGrid {
+  width: number;
+  height: number;
   grid: Tile[][];
+  vertices: Building[][] | null[][];
+  edges: Road[][] | null[][];
 
   constructor(width: number, height: number) {
-    const enumKeys = Object.keys(ResourceType);
+    this.width = width;
+    this.height = height;
     this.grid = [];
-    for (let row = 0; row < height; row++) {
+    this.vertices = [];
+    this.edges = [];
+    this.initTiles();
+    this.initVertices();
+  }
+
+  private initTiles() {
+    for (let row = 0; row < this.height; row++) {
       this.grid.push([]);
-      for (let col = 0; col < width * 2; col++) {
+      for (let col = 0; col < this.width * 2; col++) {
         if ((row + col) % 2 == 1) {
           this.grid[row].push(null);
         } else {
           const resource =
             weightedResourceTable[Math.floor(Math.random() * 100)];
-          console.log();
           this.grid[row].push(
             new Tile(resource, false, Math.floor(Math.random() * 11) + 2)
           );
@@ -135,14 +221,31 @@ class TileGrid {
     }
   }
 
+  private initVertices() {
+    for (let row = 0; row < this.height + 1; row++) {
+      if (row % 2 == 0) {
+        this.vertices.push([null]);
+      } else {
+        this.vertices.push([]);
+      }
+      for (let col = 0; col < this.width * 2; col++) {
+        this.vertices[row].push(null);
+      }
+      if (row % 2 != 0) {
+        this.vertices[row].push(null);
+      }
+    }
+    console.log(this.vertices);
+  }
+
   getTileStd(row: number, col: number): Tile {
     if (row % 2 == 0) return this.grid[row][col * 2];
     return this.grid[row][col * 2 + 1];
   }
 }
 
-const width = 7;
-const height = 5;
+const width = 8;
+const height = 3;
 
 const grid = new TileGrid(width, height);
 drawHexagonGrid(250, 200, 50, width, height, grid);
