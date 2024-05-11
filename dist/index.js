@@ -80,7 +80,7 @@ class TileGrid {
                 }
                 else {
                     const randomKey = enumKeys[Math.floor(Math.random() * enumKeys.length)];
-                    this.grid[row].push(new Tile(ResourceType[randomKey], true, Math.floor(Math.random() * 11) + 2));
+                    this.grid[row].push(new Tile(ResourceType[randomKey], false, Math.floor(Math.random() * 11) + 2));
                 }
             }
         }
