@@ -23,15 +23,14 @@ enum PlayerColors {
     RED = "red",
     BLACK = "black",
     GREEN = "green",
+    BLUE = "blue",
+    YELLOW = "yellow",
 }
 
-enum TileVertices {
-    BOTTOM_LEFT,
-    TOP_LEFT,
-    TOP,
-    TOP_RIGHT,
-    BOTTOM_RIGHT,
-    BOTTOM,
+enum BuildingState {
+    UNDEVELOPED,
+    SETTLEMENT,
+    CITY,
 }
 
 type AxialCoordinate = { q: number; r: number };
@@ -49,19 +48,15 @@ interface Renderable {
 }
 
 class RenderService {
-    debug: boolean;
     // order in which layers are drawn, 0 is drawn first
     private renderLayers: Renderable[][];
     private renderLayerMap: RenderLayerMap;
-    private renderingContext: CanvasRenderingContext2D;
 
     constructor(
-        renderingContext: CanvasRenderingContext2D,
+        public renderingContext: CanvasRenderingContext2D,
         renderLayerOrder: string[],
-        debug: boolean = false
+        public debug: boolean = false
     ) {
-        this.debug = debug;
-        this.renderingContext = renderingContext;
         this.renderLayers = [];
         this.renderLayerMap = {};
         for (let i = 0; i < renderLayerOrder.length; i++) {
@@ -95,34 +90,39 @@ interface Clickable {
     // isBlocking(): boolean;
     // canBeBlocked(): boolean;
     isClicked(event: ClickEvent): boolean;
-    resolveEvent(event: ClickEvent): void;
 }
 
-// Potentially use the clickevent details to resolve overlapping clickables per implementation
+// Potentially use the clickevent details to resolve overlapping clickables on a per implementation basis
 type ClickEvent = {
     x: number;
     y: number;
+    clickable: Clickable;
 };
+
+interface ClickEventResolver {
+    resolve(clickEvent: ClickEvent);
+}
 
 class ClickHandler {
     clickables: Clickable[] = [];
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, resolver: ClickEventResolver) {
         canvas.addEventListener("click", (event: MouseEvent) => {
             const rect = canvas.getBoundingClientRect();
             const x = ((event.clientX - rect.left) * canvas.width) / rect.width;
             const y =
                 ((event.clientY - rect.top) * canvas.height) / rect.height;
-            // Current implementation is for the top clickable to be the only resolved one, subject to change
+            // Current implementation is for the top clickable to be the only resolved - subject to change
             let topClickable: Clickable | null = this.clickables.reduce(
                 (currentTop, clickable) =>
-                    clickable.isClicked({ x, y }) &&
+                    clickable.isClicked({ x, y, clickable }) &&
                     (!currentTop ||
                         currentTop.getDepth() > clickable.getDepth())
                         ? clickable
                         : currentTop,
                 null
             );
-            topClickable?.resolveEvent({ x, y });
+            if (topClickable)
+                resolver.resolve({ x, y, clickable: topClickable });
         });
     }
 
@@ -218,20 +218,13 @@ function createHexagon(
 }
 
 class Tile implements Renderable {
-    resourceType: ResourceType;
-    hasRobber: boolean;
-    rollNumber: number;
-    hexagon: Hexagon;
+    hasRobber: boolean = false;
 
     constructor(
-        hexagon: Hexagon,
-        rollNumber: number,
-        resourceType: ResourceType
-    ) {
-        this.rollNumber = rollNumber;
-        this.resourceType = resourceType;
-        this.hexagon = hexagon;
-    }
+        public hexagon: Hexagon,
+        public rollNumber: number,
+        public resourceType: ResourceType
+    ) {}
     draw(ctx: CanvasRenderingContext2D): void {
         ctx.save();
         const edges = this.hexagon.edges;
@@ -273,9 +266,6 @@ class Tile implements Renderable {
 }
 
 class TileGrid {
-    tileSize: number;
-    centerOffset: Offset;
-    gridRadius: number;
     grid: { [key: string]: Tile } = {};
     vertices: Vertex[] = [];
     edges: Edge[] = [];
@@ -289,15 +279,13 @@ class TileGrid {
     ];
 
     constructor(
-        radius: number,
-        offset: Offset,
-        size: number,
+        public gridRadius: number,
+        public centerOffset: Offset,
+        public tileSize: number,
         tileResourceDistributor: TileResourceDistributer
     ) {
         this.grid = {};
-        this.gridRadius = radius;
-        this.centerOffset = offset;
-        this.tileSize = size;
+
         this.generateHexGrid(tileResourceDistributor);
     }
 
@@ -362,19 +350,10 @@ const resourceTileWeights = [
     { resource: ResourceType.FREAKY, weight: 0.01 },
 ];
 
-enum BuildingState {
-    UNDEVELOPED,
-    SETTLEMENT,
-    CITY,
-}
-
 class Building implements Renderable, Clickable {
     state: BuildingState = BuildingState.UNDEVELOPED;
     color: PlayerColors;
-    vertex: Vertex;
-    constructor(vertex: Vertex) {
-        this.vertex = vertex;
-    }
+    constructor(public vertex: Vertex) {}
 
     getDepth(): number {
         return 1;
@@ -386,10 +365,11 @@ class Building implements Renderable, Clickable {
         return Math.sqrt(dx * dx + dy * dy) < hitboxRadius;
     }
 
-    resolveEvent(event: ClickEvent): void {
-        this.color = PlayerColors.GREEN;
+    buildSettlement(playerColor: PlayerColors) {
+        this.color = playerColor;
         this.state = BuildingState.SETTLEMENT;
     }
+
     draw(ctx: CanvasRenderingContext2D): void {
         ctx.save();
         switch (this.state) {
@@ -408,15 +388,18 @@ class Building implements Renderable, Clickable {
 }
 class Road implements Renderable, Clickable {
     color: PlayerColors;
-    edge: Edge;
     isBuilt: boolean;
 
-    constructor(edge: Edge) {
-        this.edge = edge;
-    }
+    constructor(public edge: Edge) {}
     getDepth(): number {
         return 3;
     }
+
+    buildRoad(playerColor: PlayerColors) {
+        this.isBuilt = true;
+        this.color = playerColor;
+    }
+
     isClicked(event: ClickEvent): boolean {
         const dx = this.edge.v2.x - this.edge.v1.x;
         const dy = this.edge.v2.y - this.edge.v1.y;
@@ -438,10 +421,7 @@ class Road implements Renderable, Clickable {
 
         return distance <= 10;
     }
-    resolveEvent(event: ClickEvent): void {
-        this.isBuilt = true;
-        this.color = PlayerColors.GREEN;
-    }
+
     draw(ctx: CanvasRenderingContext2D): void {
         if (this.isBuilt) {
             ctx.save();
@@ -527,12 +507,42 @@ class Game {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
+class GameError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = this.constructor.name;
+    }
+}
+
+class GameHandler implements ClickEventResolver {
+    currentPlayerIndex: number = 0;
+
+    constructor(public players: PlayerColors[]) {}
+
+    resolve(clickEvent: ClickEvent) {
+        try {
+            if (clickEvent.clickable instanceof Building) {
+                const building = clickEvent.clickable as Building;
+                building.buildSettlement(this.players[this.currentPlayerIndex]);
+            } else if (clickEvent.clickable instanceof Road) {
+                const road = clickEvent.clickable as Road;
+                road.buildRoad(this.players[this.currentPlayerIndex]);
+            }
+        } catch (error) {
+            if (error instanceof GameError) {
+                console.log("Game Error Attempted: ", error.message);
+            } else {
+                console.error("Unknown Error: ", error.message);
+            }
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////
 const resourceGenerator = new TileResourceDistributer(resourceTileWeights);
 
 const renderLayers = ["tile", "edge", "vertex"];
-const renderService = new RenderService(ctx, renderLayers, true);
-
-const clickHandler = new ClickHandler(canvas);
+const renderService = new RenderService(ctx, renderLayers);
 
 const tileGrid = new TileGrid(
     4,
@@ -540,6 +550,10 @@ const tileGrid = new TileGrid(
     100,
     resourceGenerator
 );
+
+const gameHandler = new GameHandler([PlayerColors.RED, PlayerColors.BLUE]);
+
+const clickHandler = new ClickHandler(canvas, gameHandler);
 
 for (const key in tileGrid.grid) {
     if (tileGrid.grid.hasOwnProperty(key)) {
