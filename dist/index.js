@@ -1,7 +1,7 @@
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-canvas.width = 1080;
-canvas.height = 720;
+canvas.width = 2160;
+canvas.height = 1440;
 canvas.style.width = "1080px";
 canvas.style.height = "720px";
 var ResourceType;
@@ -55,10 +55,11 @@ class RenderService {
         this.renderLayers[this.renderLayerMap[layer]].push(renderable);
     }
 }
-function axialToPixel(coord, size) {
-    const x = size * (Math.sqrt(3) * coord.q + (Math.sqrt(3) / 2) * coord.r);
-    const y = size * ((3 / 2) * coord.r);
-    return { x, y };
+function axialToPixel(coord, size, offSet) {
+    const x = size * (Math.sqrt(3) * coord.q + (Math.sqrt(3) / 2) * coord.r) +
+        offSet.x;
+    const y = size * ((3 / 2) * coord.r) + offSet.y;
+    return { x, y, connectedEdges: [] };
 }
 function areNumbersEqual(num1, num2, epsilon = 0.1) {
     return Math.abs(num1 - num2) < epsilon;
@@ -88,8 +89,8 @@ function addEdge(edge, edges) {
     edges.push(edge);
     return edge;
 }
-function createHexagon(coord, size, vertices, edges) {
-    const center = axialToPixel(coord, size);
+function createHexagon(coord, offSet, size, vertices, edges) {
+    const center = axialToPixel(coord, size, offSet);
     const angleIncrement = Math.PI / 3;
     const currentEdges = [];
     const currentVertices = [];
@@ -98,6 +99,7 @@ function createHexagon(coord, size, vertices, edges) {
         const vertex = {
             x: center.x + size * Math.cos(angle),
             y: center.y + size * Math.sin(angle),
+            connectedEdges: [],
         };
         currentVertices.push(addVertex(vertex, vertices));
     }
@@ -106,9 +108,12 @@ function createHexagon(coord, size, vertices, edges) {
             v1: currentVertices[i],
             v2: currentVertices[(i + 1) % 6],
         };
-        currentEdges.push(addEdge(edge, edges));
+        const newEdge = addEdge(edge, edges);
+        addEdge(newEdge, newEdge.v1.connectedEdges);
+        addEdge(newEdge, newEdge.v2.connectedEdges);
+        currentEdges.push(newEdge);
     }
-    return { coordinates: coord, edges: currentEdges };
+    return { coordinates: coord, edges: currentEdges, center: center };
 }
 class Tile {
     constructor(hexagon, rollNumber, resourceType) {
@@ -121,7 +126,6 @@ class Tile {
         ctx.moveTo(edges[0].v1.x, edges[0].v1.y);
         ctx.beginPath();
         for (let i = 1; i < 7; i++) {
-            // I don't really like this, but vertex order in the edges isn't gurenteed
             if (verticesEqual(edges[i - 1].v1, edges[i % 6].v1) ||
                 verticesEqual(edges[i - 1].v1, edges[i % 6].v2)) {
                 ctx.lineTo(edges[i - 1].v2.x, edges[i - 1].v2.y);
@@ -137,12 +141,45 @@ class Tile {
         ctx.strokeStyle = "#ffffff";
         ctx.fill();
         ctx.stroke();
+        ctx.font = "60px Verdana";
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "black";
+        const textMetrics = ctx.measureText(this.rollNumber.toString());
+        const textWidth = textMetrics.width;
+        const textHeight = 50;
+        const x = this.hexagon.center.x - textWidth / 2;
+        const y = this.hexagon.center.y + textHeight / 2;
+        ctx.fillText(this.rollNumber.toString(), x, y);
+        ctx.strokeText(this.rollNumber.toString(), x, y);
     }
 }
 class TileGrid {
-}
-function createTile(coord, size, vertices, edges, resource) {
-    return new Tile(createHexagon(coord, size, vertices, edges), 1, resource);
+    constructor(radius, offset, size, tileResourceDistributor) {
+        this.grid = {};
+        this.vertices = [];
+        this.edges = [];
+        this.directions = [
+            { q: 1, r: 0 },
+            { q: 1, r: -1 },
+            { q: 0, r: -1 },
+            { q: -1, r: 0 },
+            { q: -1, r: 1 },
+            { q: 0, r: 1 },
+        ];
+        this.grid = {};
+        this.gridRadius = radius;
+        this.centerOffset = offset;
+        this.tileSize = size;
+        this.generateHexGrid(tileResourceDistributor);
+    }
+    generateHexGrid(tileResourceDistributor) {
+        for (let q = -this.gridRadius; q <= this.gridRadius; q++) {
+            for (let r = Math.max(-this.gridRadius, -q - this.gridRadius); r <= Math.min(this.gridRadius, -q + this.gridRadius); r++) {
+                const key = `${q},${r}`;
+                this.grid[key] = new Tile(createHexagon({ q, r }, this.centerOffset, this.tileSize, this.vertices, this.edges), Math.floor(Math.random() * 11 + 1), tileResourceDistributor.getRandomResource());
+            }
+        }
+    }
 }
 class TileResourceDistributer {
     constructor(resourceTileWeights) {
@@ -165,28 +202,22 @@ const resourceTileWeights = [
     { resource: ResourceType.WOOD, weight: 0.1 },
     { resource: ResourceType.FREAKY, weight: 0.1 },
 ];
+class Building {
+    constructor() { }
+}
+class Road {
+    constructor() { }
+}
+///////////////////////////////////////////////////////////////////////////////////
 const resourceGenerator = new TileResourceDistributer(resourceTileWeights);
 const renderLayers = ["tile", "edge", "vertex"];
 const renderService = new RenderService(ctx, renderLayers, true);
-const directions = [
-    { q: 1, r: 0 },
-    { q: 1, r: -1 },
-    { q: 0, r: -1 },
-    { q: -1, r: 0 },
-    { q: -1, r: 1 },
-    { q: 0, r: 1 },
-];
-const size = 50;
-const centerCoord = { q: 1, r: 1 };
-const vertices = [];
-const edges = [];
-let tile = createTile(centerCoord, size, vertices, edges, resourceGenerator.getRandomResource());
-let tile2 = createTile({ q: 1, r: 2 }, size, vertices, edges, resourceGenerator.getRandomResource());
-let tile3 = createTile({ q: 2, r: 1 }, size, vertices, edges, resourceGenerator.getRandomResource());
-let tile4 = createTile({ q: 2, r: 2 }, size, vertices, edges, resourceGenerator.getRandomResource());
-renderService.addElement("tile", tile);
-renderService.addElement("tile", tile2);
-renderService.addElement("tile", tile3);
-renderService.addElement("tile", tile4);
+const tileGrid = new TileGrid(4, { x: canvas.width / 2, y: canvas.height / 2 }, 100, resourceGenerator);
+for (const key in tileGrid.grid) {
+    if (tileGrid.grid.hasOwnProperty(key)) {
+        renderService.addElement("tile", tileGrid.grid[key]);
+    }
+}
+console.log(tileGrid.edges);
 renderService.renderFrame();
 //# sourceMappingURL=index.js.map

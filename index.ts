@@ -3,8 +3,8 @@ const canvas: HTMLCanvasElement | null = document.getElementById(
 ) as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
 
-canvas.width = 1080;
-canvas.height = 720;
+canvas.width = 2160;
+canvas.height = 1440;
 canvas.style.width = "1080px";
 canvas.style.height = "720px";
 
@@ -34,16 +34,11 @@ enum TileVertices {
     BOTTOM,
 }
 
-type Building = {
-    isCity: boolean;
-    color: PlayerColors;
-    vertex: Vertex;
-};
-type Road = { color: PlayerColors; edge: Edge };
 type AxialCoordinate = { q: number; r: number };
-type Vertex = { x: number; y: number };
+type Offset = { x: number; y: number };
+type Vertex = { x: number; y: number; connectedEdges: Edge[] };
 type Edge = { v1: Vertex; v2: Vertex };
-type Hexagon = { coordinates: AxialCoordinate; edges: Edge[] };
+type Hexagon = { coordinates: AxialCoordinate; edges: Edge[]; center: Vertex };
 type ResourceWeight = { resource: ResourceType; weight: number };
 type RenderLayerMap = {
     [key: string]: number;
@@ -91,10 +86,16 @@ class RenderService {
     }
 }
 
-function axialToPixel(coord: AxialCoordinate, size: number): Vertex {
-    const x = size * (Math.sqrt(3) * coord.q + (Math.sqrt(3) / 2) * coord.r);
-    const y = size * ((3 / 2) * coord.r);
-    return { x, y };
+function axialToPixel(
+    coord: AxialCoordinate,
+    size: number,
+    offSet: Offset
+): Vertex {
+    const x =
+        size * (Math.sqrt(3) * coord.q + (Math.sqrt(3) / 2) * coord.r) +
+        offSet.x;
+    const y = size * ((3 / 2) * coord.r) + offSet.y;
+    return { x, y, connectedEdges: [] };
 }
 
 function areNumbersEqual(
@@ -138,20 +139,22 @@ function addEdge(edge: Edge, edges: Edge[]): Edge {
 
 function createHexagon(
     coord: AxialCoordinate,
+    offSet: Offset,
     size: number,
     vertices: Vertex[],
     edges: Edge[]
 ): Hexagon {
-    const center = axialToPixel(coord, size);
+    const center = axialToPixel(coord, size, offSet);
     const angleIncrement = Math.PI / 3;
     const currentEdges: Edge[] = [];
     const currentVertices = [];
 
     for (let i = 0; i < 6; i++) {
         const angle = angleIncrement * i - Math.PI / 6;
-        const vertex = {
+        const vertex: Vertex = {
             x: center.x + size * Math.cos(angle),
             y: center.y + size * Math.sin(angle),
+            connectedEdges: [],
         };
         currentVertices.push(addVertex(vertex, vertices));
     }
@@ -160,10 +163,13 @@ function createHexagon(
             v1: currentVertices[i],
             v2: currentVertices[(i + 1) % 6],
         };
-        currentEdges.push(addEdge(edge, edges));
+        const newEdge = addEdge(edge, edges);
+        addEdge(newEdge, newEdge.v1.connectedEdges);
+        addEdge(newEdge, newEdge.v2.connectedEdges);
+        currentEdges.push(newEdge);
     }
 
-    return { coordinates: coord, edges: currentEdges };
+    return { coordinates: coord, edges: currentEdges, center: center };
 }
 
 class Tile implements Renderable {
@@ -186,7 +192,6 @@ class Tile implements Renderable {
         ctx.moveTo(edges[0].v1.x, edges[0].v1.y);
         ctx.beginPath();
         for (let i = 1; i < 7; i++) {
-            // I don't really like this, but vertex order in the edges isn't gurenteed
             if (
                 verticesEqual(edges[i - 1].v1, edges[i % 6].v1) ||
                 verticesEqual(edges[i - 1].v1, edges[i % 6].v2)
@@ -204,25 +209,73 @@ class Tile implements Renderable {
         ctx.strokeStyle = "#ffffff";
         ctx.fill();
         ctx.stroke();
+        ctx.font = "60px Verdana";
+        ctx.fillStyle = "white";
+        ctx.strokeStyle = "black";
+        const textMetrics = ctx.measureText(this.rollNumber.toString());
+        const textWidth = textMetrics.width;
+        const textHeight = 50;
+        const x = this.hexagon.center.x - textWidth / 2;
+        const y = this.hexagon.center.y + textHeight / 2;
+
+        ctx.fillText(this.rollNumber.toString(), x, y);
+        ctx.strokeText(this.rollNumber.toString(), x, y);
     }
 }
 
 class TileGrid {
-    width: number;
-    height: number;
-    grid: Tile[][];
-    vertices: Vertex[];
-    edges: Edge[];
-}
+    tileSize: number;
+    centerOffset: Offset;
+    gridRadius: number;
+    grid: { [key: string]: Tile } = {};
+    vertices: Vertex[] = [];
+    edges: Edge[] = [];
+    directions: AxialCoordinate[] = [
+        { q: 1, r: 0 },
+        { q: 1, r: -1 },
+        { q: 0, r: -1 },
+        { q: -1, r: 0 },
+        { q: -1, r: 1 },
+        { q: 0, r: 1 },
+    ];
 
-function createTile(
-    coord: AxialCoordinate,
-    size: number,
-    vertices: Vertex[],
-    edges: Edge[],
-    resource: ResourceType
-) {
-    return new Tile(createHexagon(coord, size, vertices, edges), 1, resource);
+    constructor(
+        radius: number,
+        offset: Offset,
+        size: number,
+        tileResourceDistributor: TileResourceDistributer
+    ) {
+        this.grid = {};
+        this.gridRadius = radius;
+        this.centerOffset = offset;
+        this.tileSize = size;
+        this.generateHexGrid(tileResourceDistributor);
+    }
+
+    private generateHexGrid(
+        tileResourceDistributor: TileResourceDistributer
+    ): void {
+        for (let q = -this.gridRadius; q <= this.gridRadius; q++) {
+            for (
+                let r = Math.max(-this.gridRadius, -q - this.gridRadius);
+                r <= Math.min(this.gridRadius, -q + this.gridRadius);
+                r++
+            ) {
+                const key = `${q},${r}`;
+                this.grid[key] = new Tile(
+                    createHexagon(
+                        { q, r },
+                        this.centerOffset,
+                        this.tileSize,
+                        this.vertices,
+                        this.edges
+                    ),
+                    Math.floor(Math.random() * 11 + 1),
+                    tileResourceDistributor.getRandomResource()
+                );
+            }
+        }
+    }
 }
 
 class TileResourceDistributer {
@@ -254,59 +307,38 @@ const resourceTileWeights = [
     { resource: ResourceType.FREAKY, weight: 0.1 },
 ];
 
+class Building {
+    isCity: boolean;
+    color: PlayerColors;
+    vertex: Vertex;
+    constructor() {}
+}
+class Road {
+    color: PlayerColors;
+    edge: Edge;
+
+    constructor() {}
+}
+
+///////////////////////////////////////////////////////////////////////////////////
 const resourceGenerator = new TileResourceDistributer(resourceTileWeights);
 
 const renderLayers = ["tile", "edge", "vertex"];
 
 const renderService = new RenderService(ctx, renderLayers, true);
 
-const directions: AxialCoordinate[] = [
-    { q: 1, r: 0 },
-    { q: 1, r: -1 },
-    { q: 0, r: -1 },
-    { q: -1, r: 0 },
-    { q: -1, r: 1 },
-    { q: 0, r: 1 },
-];
-
-const size = 50;
-const centerCoord: AxialCoordinate = { q: 1, r: 1 };
-const vertices: Vertex[] = [];
-const edges: Edge[] = [];
-let tile = createTile(
-    centerCoord,
-    size,
-    vertices,
-    edges,
-    resourceGenerator.getRandomResource()
+const tileGrid = new TileGrid(
+    4,
+    { x: canvas.width / 2, y: canvas.height / 2 },
+    100,
+    resourceGenerator
 );
-let tile2 = createTile(
-    { q: 1, r: 2 },
-    size,
-    vertices,
-    edges,
-    resourceGenerator.getRandomResource()
-);
+for (const key in tileGrid.grid) {
+    if (tileGrid.grid.hasOwnProperty(key)) {
+        renderService.addElement("tile", tileGrid.grid[key]);
+    }
+}
 
-let tile3 = createTile(
-    { q: 2, r: 1 },
-    size,
-    vertices,
-    edges,
-    resourceGenerator.getRandomResource()
-);
-
-let tile4 = createTile(
-    { q: 2, r: 2 },
-    size,
-    vertices,
-    edges,
-    resourceGenerator.getRandomResource()
-);
-
-renderService.addElement("tile", tile);
-renderService.addElement("tile", tile2);
-renderService.addElement("tile", tile3);
-renderService.addElement("tile", tile4);
+console.log(tileGrid.edges);
 
 renderService.renderFrame();
