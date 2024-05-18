@@ -45,7 +45,7 @@ type RenderLayerMap = {
 };
 
 interface Renderable {
-    draw(renderingContext: CanvasRenderingContext2D): void;
+    draw(ctx: CanvasRenderingContext2D): void;
 }
 
 class RenderService {
@@ -83,6 +83,51 @@ class RenderService {
 
     addElement(layer: string, renderable: Renderable) {
         this.renderLayers[this.renderLayerMap[layer]].push(renderable);
+    }
+}
+
+interface Clickable {
+    /** Gets the 'z depth' of the object, higher is farther away
+     *
+     */
+    getDepth(): number;
+    // Probs would be interesting to implement this if more complicated resolutions are required for overlapping clickables
+    // isBlocking(): boolean;
+    // canBeBlocked(): boolean;
+    isClicked(event: ClickEvent): boolean;
+    resolveEvent(event: ClickEvent): void;
+}
+
+// Potentially use the clickevent details to resolve overlapping clickables per implementation
+type ClickEvent = {
+    x: number;
+    y: number;
+};
+
+class ClickHandler {
+    clickables: Clickable[] = [];
+    constructor(canvas: HTMLCanvasElement) {
+        canvas.addEventListener("click", (event: MouseEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = ((event.clientX - rect.left) * canvas.width) / rect.width;
+            const y =
+                ((event.clientY - rect.top) * canvas.height) / rect.height;
+            // Current implementation is for the top clickable to be the only resolved one, subject to change
+            let topClickable: Clickable | null = this.clickables.reduce(
+                (currentTop, clickable) =>
+                    clickable.isClicked({ x, y }) &&
+                    (!currentTop ||
+                        currentTop.getDepth() > clickable.getDepth())
+                        ? clickable
+                        : currentTop,
+                null
+            );
+            topClickable?.resolveEvent({ x, y });
+        });
+    }
+
+    addClickable(clickable: Clickable): void {
+        this.clickables.push(clickable);
     }
 }
 
@@ -188,6 +233,7 @@ class Tile implements Renderable {
         this.hexagon = hexagon;
     }
     draw(ctx: CanvasRenderingContext2D): void {
+        ctx.save();
         const edges = this.hexagon.edges;
         ctx.moveTo(edges[0].v1.x, edges[0].v1.y);
         ctx.beginPath();
@@ -205,10 +251,12 @@ class Tile implements Renderable {
         }
 
         ctx.closePath();
+        ctx.lineWidth = 2;
         ctx.fillStyle = this.resourceType;
         ctx.strokeStyle = "#ffffff";
         ctx.fill();
         ctx.stroke();
+        if (this.rollNumber === 7) return;
         ctx.font = "60px Verdana";
         ctx.fillStyle = "white";
         ctx.strokeStyle = "black";
@@ -220,6 +268,7 @@ class Tile implements Renderable {
 
         ctx.fillText(this.rollNumber.toString(), x, y);
         ctx.strokeText(this.rollNumber.toString(), x, y);
+        ctx.restore();
     }
 }
 
@@ -262,6 +311,12 @@ class TileGrid {
                 r++
             ) {
                 const key = `${q},${r}`;
+                const rollNumber = Math.floor(Math.random() * 11 + 1);
+                const resource =
+                    rollNumber === 7
+                        ? ResourceType.DESERT
+                        : tileResourceDistributor.getRandomResource();
+
                 this.grid[key] = new Tile(
                     createHexagon(
                         { q, r },
@@ -270,8 +325,8 @@ class TileGrid {
                         this.vertices,
                         this.edges
                     ),
-                    Math.floor(Math.random() * 11 + 1),
-                    tileResourceDistributor.getRandomResource()
+                    rollNumber,
+                    resource
                 );
             }
         }
@@ -300,32 +355,184 @@ class TileResourceDistributer {
 
 const resourceTileWeights = [
     { resource: ResourceType.CONCRETE, weight: 0.2 },
-    { resource: ResourceType.SPICE, weight: 0.25 },
+    { resource: ResourceType.SPICE, weight: 0.19 },
     { resource: ResourceType.ANIMAL, weight: 0.2 },
     { resource: ResourceType.METAL, weight: 0.15 },
-    { resource: ResourceType.WOOD, weight: 0.1 },
-    { resource: ResourceType.FREAKY, weight: 0.1 },
+    { resource: ResourceType.WOOD, weight: 0.15 },
+    { resource: ResourceType.FREAKY, weight: 0.01 },
 ];
 
-class Building {
-    isCity: boolean;
+enum BuildingState {
+    UNDEVELOPED,
+    SETTLEMENT,
+    CITY,
+}
+
+class Building implements Renderable, Clickable {
+    state: BuildingState = BuildingState.UNDEVELOPED;
     color: PlayerColors;
     vertex: Vertex;
-    constructor() {}
+    constructor(vertex: Vertex) {
+        this.vertex = vertex;
+    }
+
+    getDepth(): number {
+        return 1;
+    }
+    isClicked(event: ClickEvent): boolean {
+        const hitboxRadius = 20;
+        const dx = event.x - this.vertex.x;
+        const dy = event.y - this.vertex.y;
+        return Math.sqrt(dx * dx + dy * dy) < hitboxRadius;
+    }
+
+    resolveEvent(event: ClickEvent): void {
+        this.color = PlayerColors.GREEN;
+        this.state = BuildingState.SETTLEMENT;
+    }
+    draw(ctx: CanvasRenderingContext2D): void {
+        ctx.save();
+        switch (this.state) {
+            case BuildingState.UNDEVELOPED:
+                break;
+            case BuildingState.CITY:
+            case BuildingState.SETTLEMENT:
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.vertex.x - 20, this.vertex.y - 20, 40, 40);
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 5;
+                ctx.strokeRect(this.vertex.x - 20, this.vertex.y - 20, 40, 40);
+        }
+        ctx.restore();
+    }
 }
-class Road {
+class Road implements Renderable, Clickable {
     color: PlayerColors;
     edge: Edge;
+    isBuilt: boolean;
 
-    constructor() {}
+    constructor(edge: Edge) {
+        this.edge = edge;
+    }
+    getDepth(): number {
+        return 3;
+    }
+    isClicked(event: ClickEvent): boolean {
+        const dx = this.edge.v2.x - this.edge.v1.x;
+        const dy = this.edge.v2.y - this.edge.v1.y;
+        const length = dx * dx + dy * dy;
+        const t = Math.max(
+            0,
+            Math.min(
+                1,
+                ((event.x - this.edge.v1.x) * dx +
+                    (event.y - this.edge.v1.y) * dy) /
+                    length
+            )
+        );
+        const projectionX = this.edge.v1.x + t * dx;
+        const projectionY = this.edge.v1.y + t * dy;
+        const dx2 = event.x - projectionX;
+        const dy2 = event.y - projectionY;
+        const distance = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+        return distance <= 10;
+    }
+    resolveEvent(event: ClickEvent): void {
+        this.isBuilt = true;
+        this.color = PlayerColors.GREEN;
+    }
+    draw(ctx: CanvasRenderingContext2D): void {
+        if (this.isBuilt) {
+            ctx.save();
+
+            ctx.fillStyle = this.color;
+            ctx.strokeStyle = "black";
+
+            const centerX = (this.edge.v1.x + this.edge.v2.x) / 2;
+            const centerY = (this.edge.v1.y + this.edge.v2.y) / 2;
+            const width = Math.abs(this.edge.v2.x - this.edge.v1.x);
+            const height = Math.abs(this.edge.v2.y - this.edge.v1.y);
+
+            // When the road is vertical I can't figure out how to not hardcode it
+            if (Math.abs(this.edge.v1.x - this.edge.v2.x) < 0.1) {
+                ctx.fillRect(
+                    this.edge.v1.x - 12.5,
+                    this.edge.v1.y,
+                    25,
+                    Math.abs(this.edge.v1.y - this.edge.v2.y)
+                );
+                ctx.strokeRect(
+                    this.edge.v1.x - 12.5,
+                    this.edge.v1.y,
+                    25,
+                    Math.abs(this.edge.v1.y - this.edge.v2.y)
+                );
+                return;
+            }
+
+            let angle = 0;
+            if (this.edge.v1.x !== this.edge.v2.x) {
+                angle = Math.atan2(
+                    this.edge.v2.y - this.edge.v1.y,
+                    this.edge.v2.x - this.edge.v1.x
+                );
+            } else {
+                angle =
+                    this.edge.v1.y < this.edge.v2.y
+                        ? Math.PI / 2
+                        : -Math.PI / 2;
+            }
+
+            ctx.translate(centerX, centerY);
+            ctx.rotate(angle);
+            ctx.fillRect(-width / 2, -height / 2 + 12.5, width, 25);
+            ctx.strokeRect(-width / 2, -height / 2 + 12.5, width, 25);
+            ctx.restore();
+        }
+    }
+}
+
+class Game {
+    private lastTimestamp: number = 0;
+    private renderService: RenderService;
+
+    constructor(renderService: RenderService) {
+        this.gameLoop = this.gameLoop.bind(this);
+        this.renderService = renderService;
+    }
+
+    private async update(deltaTime: number): Promise<void> {
+        // work here
+    }
+
+    private render(): void {
+        this.renderService.renderFrame();
+    }
+
+    private async gameLoop(timestamp: number): Promise<void> {
+        const deltaTime = timestamp - this.lastTimestamp;
+        this.lastTimestamp = timestamp;
+
+        await this.update(deltaTime);
+        this.render();
+
+        requestAnimationFrame(this.gameLoop);
+    }
+
+    public start(): void {
+        this.lastTimestamp = performance.now();
+        requestAnimationFrame(this.gameLoop);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
 const resourceGenerator = new TileResourceDistributer(resourceTileWeights);
 
 const renderLayers = ["tile", "edge", "vertex"];
-
 const renderService = new RenderService(ctx, renderLayers, true);
+
+const clickHandler = new ClickHandler(canvas);
 
 const tileGrid = new TileGrid(
     4,
@@ -333,12 +540,32 @@ const tileGrid = new TileGrid(
     100,
     resourceGenerator
 );
+
 for (const key in tileGrid.grid) {
     if (tileGrid.grid.hasOwnProperty(key)) {
         renderService.addElement("tile", tileGrid.grid[key]);
     }
 }
 
-console.log(tileGrid.edges);
+const buildings: Building[] = [];
+const roads: Road[] = [];
+tileGrid.vertices.forEach((vertex) => {
+    buildings.push(new Building(vertex));
+});
 
-renderService.renderFrame();
+tileGrid.edges.forEach((edge) => {
+    roads.push(new Road(edge));
+});
+
+buildings.forEach((building) => {
+    clickHandler.addClickable(building);
+    renderService.addElement("vertex", building);
+});
+
+roads.forEach((road) => {
+    clickHandler.addClickable(road);
+    renderService.addElement("edge", road);
+});
+
+const game = new Game(renderService);
+game.start();
