@@ -15,12 +15,11 @@ canvas.style.width = "1080px";
 canvas.style.height = "720px";
 var ResourceType;
 (function (ResourceType) {
-    ResourceType["CONCRETE"] = "Tomato";
-    ResourceType["SPICE"] = "orange";
-    ResourceType["ANIMAL"] = "MediumSeaGreen";
-    ResourceType["METAL"] = "lightgray";
-    ResourceType["WOOD"] = "brown";
-    ResourceType["FREAKY"] = "purple";
+    ResourceType["BRICK"] = "Tomato";
+    ResourceType["WHEAT"] = "#FFBF00";
+    ResourceType["CATTLE"] = "MediumSeaGreen";
+    ResourceType["ORE"] = "lightgray";
+    ResourceType["WOOD"] = "green";
     ResourceType["DESERT"] = "gray";
 })(ResourceType || (ResourceType = {}));
 var PlayerColors;
@@ -72,7 +71,8 @@ class ClickHandler {
             const y = ((event.clientY - rect.top) * canvas.height) / rect.height;
             // Current implementation is for the top clickable to be the only resolved - subject to change
             let topClickable = this.clickables.reduce((currentTop, clickable) => clickable.isClicked({ x, y, clickable }) &&
-                (!currentTop || currentTop.getDepth() > clickable.getDepth())
+                (!currentTop ||
+                    currentTop.getDepth() > clickable.getDepth())
                 ? clickable
                 : currentTop, null);
             if (topClickable)
@@ -84,7 +84,8 @@ class ClickHandler {
     }
 }
 function axialToPixel(coord, size, offSet) {
-    const x = size * (Math.sqrt(3) * coord.q + (Math.sqrt(3) / 2) * coord.r) + offSet.x;
+    const x = size * (Math.sqrt(3) * coord.q + (Math.sqrt(3) / 2) * coord.r) +
+        offSet.x;
     const y = size * ((3 / 2) * coord.r) + offSet.y;
     return { x, y, connectedEdges: [] };
 }
@@ -232,16 +233,16 @@ class TileResourceDistributer {
     }
 }
 const resourceTileWeights = [
-    { resource: ResourceType.CONCRETE, weight: 0.2 },
-    { resource: ResourceType.SPICE, weight: 0.19 },
-    { resource: ResourceType.ANIMAL, weight: 0.2 },
-    { resource: ResourceType.METAL, weight: 0.15 },
-    { resource: ResourceType.WOOD, weight: 0.15 },
-    { resource: ResourceType.FREAKY, weight: 0.01 },
+    { resource: ResourceType.BRICK, weight: 0.2 },
+    { resource: ResourceType.WHEAT, weight: 0.2 },
+    { resource: ResourceType.CATTLE, weight: 0.2 },
+    { resource: ResourceType.ORE, weight: 0.2 },
+    { resource: ResourceType.WOOD, weight: 0.2 },
 ];
 class Building {
-    constructor(vertex) {
+    constructor(vertex, id) {
         this.vertex = vertex;
+        this.id = id;
         this.state = BuildingState.UNDEVELOPED;
         this.adjacentBuildings = [];
         this.adjacentRoads = [];
@@ -255,10 +256,17 @@ class Building {
         const dy = event.y - this.vertex.y;
         return Math.sqrt(dx * dx + dy * dy) < hitboxRadius;
     }
-    buildSettlement(playerColor) {
-        if (this.state != BuildingState.UNDEVELOPED) {
+    buildInvalid(playerColor, turn) {
+        return turn !== 0
+            ? !this.adjacentRoads.find((road) => road.color === playerColor) ||
+                this.adjacentBuildings.find((building) => building.color)
+            : this.adjacentBuildings.find((building) => building.color);
+    }
+    buildSettlement(playerColor, turn) {
+        if (this.state != BuildingState.UNDEVELOPED)
             throw new GameError(`${playerColor} tried to build on invalid space owned by ${this.color}`);
-        }
+        else if (this.buildInvalid(playerColor, turn))
+            throw new GameError(`${playerColor} tried to too close to another settlement or by no adjacent roads`);
         this.color = playerColor;
         this.state = BuildingState.SETTLEMENT;
     }
@@ -279,18 +287,23 @@ class Building {
     }
 }
 class Road {
-    constructor(edge) {
+    constructor(edge, id) {
         this.edge = edge;
+        this.id = id;
         this.adjacentRoads = [];
         this.adjacentBuildings = [];
     }
     getDepth() {
         return 3;
     }
+    buildInvalid(playerColor) {
+        return !(this.adjacentBuildings.find((building) => building.color === playerColor) || this.adjacentRoads.find((road) => road.color === playerColor));
+    }
     buildRoad(playerColor) {
-        if (this.isBuilt) {
+        if (this.isBuilt)
             throw new GameError(`${playerColor} tried to build on a road owned by ${this.color}`);
-        }
+        else if (this.buildInvalid(playerColor))
+            throw new GameError(`${playerColor} has no adjacent roads or buildings here`);
         this.isBuilt = true;
         this.color = playerColor;
     }
@@ -298,7 +311,8 @@ class Road {
         const dx = this.edge.v2.x - this.edge.v1.x;
         const dy = this.edge.v2.y - this.edge.v1.y;
         const length = dx * dx + dy * dy;
-        const t = Math.max(0, Math.min(1, ((event.x - this.edge.v1.x) * dx + (event.y - this.edge.v1.y) * dy) /
+        const t = Math.max(0, Math.min(1, ((event.x - this.edge.v1.x) * dx +
+            (event.y - this.edge.v1.y) * dy) /
             length));
         const projectionX = this.edge.v1.x + t * dx;
         const projectionY = this.edge.v1.y + t * dy;
@@ -318,7 +332,9 @@ class Road {
             const height = Math.abs(this.edge.v2.y - this.edge.v1.y);
             // When the road is vertical I can't figure out how to not hardcode it
             if (Math.abs(this.edge.v1.x - this.edge.v2.x) < 0.1) {
-                const yVal = this.edge.v1.y < this.edge.v2.y ? this.edge.v1.y : this.edge.v2.y;
+                const yVal = this.edge.v1.y < this.edge.v2.y
+                    ? this.edge.v1.y
+                    : this.edge.v2.y;
                 ctx.fillRect(this.edge.v1.x - 12.5, yVal, 25, Math.abs(this.edge.v1.y - this.edge.v2.y));
                 ctx.strokeRect(this.edge.v1.x - 12.5, yVal, 25, Math.abs(this.edge.v1.y - this.edge.v2.y));
                 return;
@@ -328,7 +344,10 @@ class Road {
                 angle = Math.atan2(this.edge.v2.y - this.edge.v1.y, this.edge.v2.x - this.edge.v1.x);
             }
             else {
-                angle = this.edge.v1.y < this.edge.v2.y ? Math.PI / 2 : -Math.PI / 2;
+                angle =
+                    this.edge.v1.y < this.edge.v2.y
+                        ? Math.PI / 2
+                        : -Math.PI / 2;
             }
             ctx.translate(centerX, centerY);
             ctx.rotate(angle);
@@ -367,27 +386,85 @@ class Game {
     }
 }
 ///////////////////////////////////////////////////////////////////////////////////
+class Player {
+    constructor(color, buildableSettlements = 5, buildableCities = 4, buildableRoads = 15) {
+        this.color = color;
+        this.buildableSettlements = buildableSettlements;
+        this.buildableCities = buildableCities;
+        this.buildableRoads = buildableRoads;
+    }
+}
 class GameError extends Error {
     constructor(message) {
         super(message);
         this.name = this.constructor.name;
     }
 }
+var MoveType;
+(function (MoveType) {
+    MoveType[MoveType["BUILDING"] = 0] = "BUILDING";
+    MoveType[MoveType["ROAD"] = 1] = "ROAD";
+    MoveType[MoveType["TRADE"] = 2] = "TRADE";
+    MoveType[MoveType["END_PLAYER_TURN"] = 3] = "END_PLAYER_TURN";
+})(MoveType || (MoveType = {}));
+var BuildingActions;
+(function (BuildingActions) {
+    BuildingActions[BuildingActions["BUILD_CITY"] = 0] = "BUILD_CITY";
+    BuildingActions[BuildingActions["BUILD_SETTLEMENT"] = 1] = "BUILD_SETTLEMENT";
+})(BuildingActions || (BuildingActions = {}));
+var RoadActions;
+(function (RoadActions) {
+    RoadActions[RoadActions["BUILD_ROAD"] = 0] = "BUILD_ROAD";
+})(RoadActions || (RoadActions = {}));
+class RemoteGameHandler {
+    resolve(clickEvent) {
+        throw new Error("Method not implemented.");
+    }
+}
 class LocalGameHandler {
-    constructor(players) {
+    constructor(players, buildings, roads) {
         this.players = players;
+        this.buildings = buildings;
+        this.roads = roads;
         this.currentPlayerIndex = 0;
+        this.turn = 0;
+        this.moveStack = [];
     }
     resolve(clickEvent) {
+        if (clickEvent.clickable instanceof Building) {
+            const building = clickEvent.clickable;
+            this.updateGame({
+                turn: this.turn,
+                player: this.players[this.currentPlayerIndex],
+                move: {
+                    id: building.id,
+                    action: BuildingActions.BUILD_SETTLEMENT,
+                },
+                moveType: MoveType.BUILDING,
+            });
+        }
+        else if (clickEvent.clickable instanceof Road) {
+            const road = clickEvent.clickable;
+            this.updateGame({
+                turn: this.turn,
+                player: this.players[this.currentPlayerIndex],
+                move: {
+                    id: road.id,
+                    action: RoadActions.BUILD_ROAD,
+                },
+                moveType: MoveType.ROAD,
+            });
+        }
+    }
+    updateGame(gameMove) {
+        // Check if move is valid before placing on stack
         try {
-            if (clickEvent.clickable instanceof Building) {
-                const building = clickEvent.clickable;
-                building.buildSettlement(this.players[this.currentPlayerIndex]);
+            if (gameMove.player !== this.players[this.currentPlayerIndex])
+                throw new GameError(`${gameMove.player} tried to move during ${this.players[this.currentPlayerIndex]} turn.`);
+            else if (gameMove.turn !== this.turn) {
+                throw new GameError(`${gameMove.player}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`);
             }
-            else if (clickEvent.clickable instanceof Road) {
-                const road = clickEvent.clickable;
-                road.buildRoad(this.players[this.currentPlayerIndex]);
-            }
+            this.handleMove(gameMove);
         }
         catch (error) {
             if (error instanceof GameError) {
@@ -397,36 +474,89 @@ class LocalGameHandler {
                 console.error("Unknown Error: ", error.message);
             }
         }
+        this.moveStack.push(gameMove);
+    }
+    handleMove(gameMove) {
+        switch (gameMove.moveType) {
+            case MoveType.ROAD:
+                const roadMove = gameMove.move;
+                this.roads[roadMove.id].buildRoad(gameMove.player);
+                break;
+            case MoveType.BUILDING:
+                const buildMove = gameMove.move;
+                this.buildings[buildMove.id].buildSettlement(gameMove.player, gameMove.turn);
+                break;
+            case MoveType.END_PLAYER_TURN:
+                this.endPlayerTurn();
+                break;
+        }
+    }
+    endPlayerTurn() {
+        this.currentPlayerIndex += 1;
+        if (this.currentPlayerIndex >= this.players.length) {
+            this.turn += 1;
+            this.currentPlayerIndex = 0;
+        }
     }
 }
-///////////////////////////////////////////////////////////////////////////////////
+// {
+//   "turn": 0,
+//   "player": "red",
+//   "move": {
+//     "id": 106,
+//     "action": 0
+//   },
+//   "moveType": 1
+// }
+function mapToGameMove(move) {
+    const result = {
+        turn: move.turn,
+        player: move.player,
+        moveType: move.moveType,
+    };
+    switch (move.moveType) {
+        case MoveType.BUILDING:
+            result["move"] = {
+                id: move.move.id,
+                action: move.move.action,
+            };
+            break;
+        case MoveType.ROAD:
+            result["move"] = {
+                id: move.move.id,
+                action: move.move.action,
+            };
+            break;
+    }
+    return result;
+}
+////////////////////////////////////////////////////////////////////////////////////
 const resourceGenerator = new TileResourceDistributer(resourceTileWeights);
 const renderLayers = ["tile", "edge", "vertex"];
 const renderService = new RenderService(ctx, renderLayers);
 const tileGrid = new TileGrid(4, { x: canvas.width / 2, y: canvas.height / 2 }, 100, resourceGenerator);
-const gameHandler = new LocalGameHandler([PlayerColors.RED, PlayerColors.BLUE]);
+const buildings = [];
+const roads = [];
+const gameHandler = new LocalGameHandler([PlayerColors.RED, PlayerColors.BLUE], buildings, roads);
 const clickHandler = new ClickHandler(canvas, gameHandler);
 for (const key in tileGrid.grid) {
     if (tileGrid.grid.hasOwnProperty(key)) {
         renderService.addElement("tile", tileGrid.grid[key]);
     }
 }
-const buildings = [];
-const roads = [];
-tileGrid.vertices.forEach((vertex) => {
-    buildings.push(new Building(vertex));
+tileGrid.vertices.forEach((vertex, index) => {
+    buildings.push(new Building(vertex, index));
 });
 for (let i = 0; i < buildings.length; i++) {
     for (let j = 0; j < buildings.length; j++) {
         if (buildings[i] === buildings[j])
             continue;
-        if (buildings[i].vertex.connectedEdges.reduce((val, edge) => buildings[j].vertex.connectedEdges.find((edge2) => edge === edge2) ||
-            val, false))
+        if (buildings[i].vertex.connectedEdges.reduce((val, edge) => buildings[j].vertex.connectedEdges.find((edge2) => edge === edge2) || val, false))
             buildings[i].adjacentBuildings.push(buildings[j]);
     }
 }
-tileGrid.edges.forEach((edge) => {
-    roads.push(new Road(edge));
+tileGrid.edges.forEach((edge, index) => {
+    roads.push(new Road(edge, index));
 });
 for (let i = 0; i < roads.length; i++) {
     const adjacentBuildings = buildings.filter((building) => building.vertex === roads[i].edge.v1 ||

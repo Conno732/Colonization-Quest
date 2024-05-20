@@ -13,8 +13,5 @@
         "clean": "tsc --build --clean"
     },
     "author": "",
-    "license": "ISC",
-    "dependencies": {
-        "uuid": "^9.0.1"
-    }
+    "license": "ISC"
 }
