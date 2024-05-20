@@ -569,10 +569,15 @@ class Player {
         public buildableSettlements: number = 5,
         public buildableCities: number = 4,
         public buildableRoads: number = 15
-    ) {}
+    ) {
+        Object.keys(ResourceType).forEach((key) => {
+            const value = ResourceType[key as keyof typeof ResourceType];
+            this.resources[value] = 0;
+        });
+    }
 
     isTradeValid(trade: ResourceTrade[]): boolean {
-        return !!trade.find(
+        return !trade.find(
             (resource) =>
                 resource.quantity + this.resources[resource.resource] < 0
         );
@@ -589,7 +594,7 @@ class Bank {
     constructor(public resources: ResourceCounts) {}
 
     isTradeValid(trade: ResourceTrade[]): boolean {
-        return !!trade.find(
+        return !trade.find(
             (resource) =>
                 resource.quantity + this.resources[resource.resource] < 0
         );
@@ -637,14 +642,14 @@ type RoadMove = {
 
 type GameMove = {
     turn: number;
-    player: string;
+    playerColor: string;
     move: RoadMove | BuildingMove | TradeMove;
     // This is needed to discern the different types of moves, when serializing the data its uber important
     moveType: MoveType;
 };
 
 type ResourceTrade = {
-    resource: ResourceType;
+    resource: string;
     quantity: number;
 };
 
@@ -665,16 +670,19 @@ class LocalGameHandler implements ClickEventResolver {
     private turn: number = 0;
     moveStack: GameMove[] = [];
     private players: Player[] = [];
+    private colorIndex = {};
     private diceRolled: boolean = false;
 
     constructor(
         playerColors: string[],
         public buildings: Building[],
         public roads: Road[],
-        public tileGrid: TileGrid
+        public tileGrid: TileGrid,
+        public bank: Bank
     ) {
-        playerColors.forEach((color) => {
+        playerColors.forEach((color, index) => {
             this.players.push(new Player(color));
+            this.colorIndex[color] = index;
         });
     }
 
@@ -683,7 +691,7 @@ class LocalGameHandler implements ClickEventResolver {
             const building = clickEvent.clickable as Building;
             this.updateGame({
                 turn: this.turn,
-                player: this.players[this.currentPlayerIndex].color,
+                playerColor: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: building.id,
                     action: BuildingActions.BUILD_SETTLEMENT,
@@ -694,7 +702,7 @@ class LocalGameHandler implements ClickEventResolver {
             const road = clickEvent.clickable as Road;
             this.updateGame({
                 turn: this.turn,
-                player: this.players[this.currentPlayerIndex].color,
+                playerColor: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: road.id,
                     action: RoadActions.BUILD_ROAD,
@@ -707,15 +715,19 @@ class LocalGameHandler implements ClickEventResolver {
     updateGame(gameMove: GameMove) {
         // Check if move is valid before placing on stack
         try {
-            if (gameMove.player !== this.players[this.currentPlayerIndex].color)
+            if (
+                gameMove.playerColor !==
+                    this.players[this.currentPlayerIndex].color &&
+                gameMove.moveType !== MoveType.TRADE
+            )
                 throw new GameError(
-                    `${gameMove.player} tried to move during ${
+                    `${gameMove.playerColor} tried to move during ${
                         this.players[this.currentPlayerIndex].color
                     } turn.`
                 );
             else if (gameMove.turn !== this.turn) {
                 throw new GameError(
-                    `${gameMove.player}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`
+                    `${gameMove.playerColor}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`
                 );
             }
             this.handleMove(gameMove);
@@ -743,7 +755,7 @@ class LocalGameHandler implements ClickEventResolver {
                         .forEach((building) => {
                             this.updateGame({
                                 turn: this.turn,
-                                player: building.color,
+                                playerColor: building.color,
                                 move: {
                                     withPlayer: "bank",
                                     resourceExchange: [
@@ -765,20 +777,39 @@ class LocalGameHandler implements ClickEventResolver {
         switch (gameMove.moveType) {
             case MoveType.ROAD:
                 const roadMove = gameMove.move as RoadMove;
-                this.roads[roadMove.id].buildRoad(gameMove.player);
+                this.roads[roadMove.id].buildRoad(gameMove.playerColor);
                 break;
             case MoveType.BUILDING:
                 const buildMove = gameMove.move as BuildingMove;
                 this.buildings[buildMove.id].buildSettlement(
-                    gameMove.player,
+                    gameMove.playerColor,
                     gameMove.turn
                 );
                 break;
             case MoveType.TRADE:
                 const tradeMove = gameMove.move as TradeMove;
-                if (tradeMove.withPlayer === "bank") {
-                    console.log(tradeMove);
-                }
+                const player =
+                    this.players[this.colorIndex[gameMove.playerColor]];
+                const tradingWith =
+                    tradeMove.withPlayer === "bank"
+                        ? this.bank
+                        : this.players[this.colorIndex[tradeMove.withPlayer]];
+
+                if (
+                    !player.isTradeValid(tradeMove.resourceExchange) ||
+                    !tradingWith.isTradeValid(tradeMove.resourceExchange)
+                )
+                    throw new GameError(`Invalid trade, ${gameMove}`);
+                tradingWith.trade(
+                    tradeMove.resourceExchange.map((element) => {
+                        return {
+                            resource: element.resource,
+                            quantity: element.quantity * -1,
+                        };
+                    })
+                );
+                player.trade(tradeMove.resourceExchange);
+
                 break;
             case MoveType.END_PLAYER_TURN:
                 this.endPlayerTurn();
@@ -798,7 +829,7 @@ class LocalGameHandler implements ClickEventResolver {
 
 // {
 //   "turn": 0,
-//   "player": "red",
+//   "playerColor": "red",
 //   "move": {
 //     "id": 106,
 //     "action": 0
@@ -809,7 +840,7 @@ class LocalGameHandler implements ClickEventResolver {
 function mapToGameMove(move: any) {
     const result = {
         turn: move.turn,
-        player: move.player,
+        playerColor: move.playerColor,
         moveType: move.moveType,
     };
     switch (move.moveType) {
@@ -845,11 +876,19 @@ const tileGrid = new TileGrid(
 const buildings: Building[] = [];
 const roads: Road[] = [];
 
+const resourceCounts: ResourceCounts = {};
+
+Object.keys(ResourceType).forEach((key) => {
+    const value = ResourceType[key as keyof typeof ResourceType];
+    resourceCounts[value] = 19;
+});
+
 const gameHandler = new LocalGameHandler(
     [PlayerColors.RED, PlayerColors.BLUE],
     buildings,
     roads,
-    tileGrid
+    tileGrid,
+    new Bank(resourceCounts)
 );
 
 const clickHandler = new ClickHandler(canvas, gameHandler);

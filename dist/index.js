@@ -398,9 +398,13 @@ class Player {
         this.buildableCities = buildableCities;
         this.buildableRoads = buildableRoads;
         this.resources = {};
+        Object.keys(ResourceType).forEach((key) => {
+            const value = ResourceType[key];
+            this.resources[value] = 0;
+        });
     }
     isTradeValid(trade) {
-        return !!trade.find((resource) => resource.quantity + this.resources[resource.resource] < 0);
+        return !trade.find((resource) => resource.quantity + this.resources[resource.resource] < 0);
     }
     trade(trade) {
         trade.forEach((resource) => {
@@ -413,7 +417,7 @@ class Bank {
         this.resources = resources;
     }
     isTradeValid(trade) {
-        return !!trade.find((resource) => resource.quantity + this.resources[resource.resource] < 0);
+        return !trade.find((resource) => resource.quantity + this.resources[resource.resource] < 0);
     }
     trade(trade) {
         trade.forEach((resource) => {
@@ -449,18 +453,20 @@ class RemoteGameHandler {
     }
 }
 class LocalGameHandler {
-    constructor(playerColors, buildings, roads, tileGrid) {
-        this.playerColors = playerColors;
+    constructor(playerColors, buildings, roads, tileGrid, bank) {
         this.buildings = buildings;
         this.roads = roads;
         this.tileGrid = tileGrid;
+        this.bank = bank;
         this.currentPlayerIndex = 0;
         this.turn = 0;
         this.moveStack = [];
         this.players = [];
+        this.colorIndex = {};
         this.diceRolled = false;
-        playerColors.forEach((color) => {
+        playerColors.forEach((color, index) => {
             this.players.push(new Player(color));
+            this.colorIndex[color] = index;
         });
     }
     resolve(clickEvent) {
@@ -468,7 +474,7 @@ class LocalGameHandler {
             const building = clickEvent.clickable;
             this.updateGame({
                 turn: this.turn,
-                player: this.playerColors[this.currentPlayerIndex],
+                playerColor: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: building.id,
                     action: BuildingActions.BUILD_SETTLEMENT,
@@ -480,7 +486,7 @@ class LocalGameHandler {
             const road = clickEvent.clickable;
             this.updateGame({
                 turn: this.turn,
-                player: this.playerColors[this.currentPlayerIndex],
+                playerColor: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: road.id,
                     action: RoadActions.BUILD_ROAD,
@@ -492,10 +498,12 @@ class LocalGameHandler {
     updateGame(gameMove) {
         // Check if move is valid before placing on stack
         try {
-            if (gameMove.player !== this.playerColors[this.currentPlayerIndex])
-                throw new GameError(`${gameMove.player} tried to move during ${this.playerColors[this.currentPlayerIndex]} turn.`);
+            if (gameMove.playerColor !==
+                this.players[this.currentPlayerIndex].color &&
+                gameMove.moveType !== MoveType.TRADE)
+                throw new GameError(`${gameMove.playerColor} tried to move during ${this.players[this.currentPlayerIndex].color} turn.`);
             else if (gameMove.turn !== this.turn) {
-                throw new GameError(`${gameMove.player}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`);
+                throw new GameError(`${gameMove.playerColor}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`);
             }
             this.handleMove(gameMove);
         }
@@ -510,6 +518,7 @@ class LocalGameHandler {
         this.moveStack.push(gameMove);
     }
     diceRoll(rollNumber) {
+        this.diceRolled = true;
         for (const key in tileGrid.grid) {
             if (Object.prototype.hasOwnProperty.call(tileGrid.grid, key)) {
                 const tile = tileGrid.grid[key];
@@ -519,7 +528,7 @@ class LocalGameHandler {
                         .forEach((building) => {
                         this.updateGame({
                             turn: this.turn,
-                            player: building.color,
+                            playerColor: building.color,
                             move: {
                                 withPlayer: "bank",
                                 resourceExchange: [
@@ -540,17 +549,28 @@ class LocalGameHandler {
         switch (gameMove.moveType) {
             case MoveType.ROAD:
                 const roadMove = gameMove.move;
-                this.roads[roadMove.id].buildRoad(gameMove.player);
+                this.roads[roadMove.id].buildRoad(gameMove.playerColor);
                 break;
             case MoveType.BUILDING:
                 const buildMove = gameMove.move;
-                this.buildings[buildMove.id].buildSettlement(gameMove.player, gameMove.turn);
+                this.buildings[buildMove.id].buildSettlement(gameMove.playerColor, gameMove.turn);
                 break;
             case MoveType.TRADE:
                 const tradeMove = gameMove.move;
-                if (tradeMove.withPlayer === "bank") {
-                    console.log(tradeMove);
-                }
+                const player = this.players[this.colorIndex[gameMove.playerColor]];
+                const tradingWith = tradeMove.withPlayer === "bank"
+                    ? this.bank
+                    : this.players[this.colorIndex[tradeMove.withPlayer]];
+                if (!player.isTradeValid(tradeMove.resourceExchange) ||
+                    !tradingWith.isTradeValid(tradeMove.resourceExchange))
+                    throw new GameError(`Invalid trade, ${gameMove}`);
+                tradingWith.trade(tradeMove.resourceExchange.map((element) => {
+                    return {
+                        resource: element.resource,
+                        quantity: element.quantity * -1,
+                    };
+                }));
+                player.trade(tradeMove.resourceExchange);
                 break;
             case MoveType.END_PLAYER_TURN:
                 this.endPlayerTurn();
@@ -568,7 +588,7 @@ class LocalGameHandler {
 }
 // {
 //   "turn": 0,
-//   "player": "red",
+//   "playerColor": "red",
 //   "move": {
 //     "id": 106,
 //     "action": 0
@@ -578,7 +598,7 @@ class LocalGameHandler {
 function mapToGameMove(move) {
     const result = {
         turn: move.turn,
-        player: move.player,
+        playerColor: move.playerColor,
         moveType: move.moveType,
     };
     switch (move.moveType) {
@@ -604,7 +624,12 @@ const renderService = new RenderService(ctx, renderLayers);
 const tileGrid = new TileGrid(4, { x: canvas.width / 2, y: canvas.height / 2 }, 100, resourceGenerator);
 const buildings = [];
 const roads = [];
-const gameHandler = new LocalGameHandler([PlayerColors.RED, PlayerColors.BLUE], buildings, roads, tileGrid);
+const resourceCounts = {};
+Object.keys(ResourceType).forEach((key) => {
+    const value = ResourceType[key];
+    resourceCounts[value] = 19;
+});
+const gameHandler = new LocalGameHandler([PlayerColors.RED, PlayerColors.BLUE], buildings, roads, tileGrid, new Bank(resourceCounts));
 const clickHandler = new ClickHandler(canvas, gameHandler);
 for (const key in tileGrid.grid) {
     if (tileGrid.grid.hasOwnProperty(key)) {
