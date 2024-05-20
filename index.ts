@@ -36,7 +36,12 @@ type AxialCoordinate = { q: number; r: number };
 type Offset = { x: number; y: number };
 type Vertex = { x: number; y: number; connectedEdges: Edge[] };
 type Edge = { v1: Vertex; v2: Vertex };
-type Hexagon = { coordinates: AxialCoordinate; edges: Edge[]; center: Vertex };
+type Hexagon = {
+    coordinates: AxialCoordinate;
+    edges: Edge[];
+    center: Vertex;
+    vertices: Vertex[];
+};
 type ResourceWeight = { resource: ResourceType; weight: number };
 type RenderLayerMap = {
     [key: string]: number;
@@ -213,12 +218,18 @@ function createHexagon(
         currentEdges.push(newEdge);
     }
 
-    return { coordinates: coord, edges: currentEdges, center: center };
+    return {
+        coordinates: coord,
+        edges: currentEdges,
+        center: center,
+        vertices: currentVertices,
+    };
 }
 
 class Tile implements Renderable {
     hasRobber: boolean = false;
     id: number;
+    adjacentBuildings: Building[] = [];
     constructor(
         public hexagon: Hexagon,
         public rollNumber: number,
@@ -547,13 +558,48 @@ class Game {
 
 ///////////////////////////////////////////////////////////////////////////////////
 
+type ResourceCounts = {
+    [resource: string]: number;
+};
+
 class Player {
+    resources: ResourceCounts = {};
     constructor(
         public color: string,
         public buildableSettlements: number = 5,
         public buildableCities: number = 4,
         public buildableRoads: number = 15
     ) {}
+
+    isTradeValid(trade: ResourceTrade[]): boolean {
+        return !!trade.find(
+            (resource) =>
+                resource.quantity + this.resources[resource.resource] < 0
+        );
+    }
+
+    trade(trade: ResourceTrade[]) {
+        trade.forEach((resource) => {
+            this.resources[resource.resource] += resource.quantity;
+        });
+    }
+}
+
+class Bank {
+    constructor(public resources: ResourceCounts) {}
+
+    isTradeValid(trade: ResourceTrade[]): boolean {
+        return !!trade.find(
+            (resource) =>
+                resource.quantity + this.resources[resource.resource] < 0
+        );
+    }
+
+    trade(trade: ResourceTrade[]) {
+        trade.forEach((resource) => {
+            this.resources[resource.resource] += resource.quantity;
+        });
+    }
 }
 
 class GameError extends Error {
@@ -592,7 +638,7 @@ type RoadMove = {
 type GameMove = {
     turn: number;
     player: string;
-    move: RoadMove | BuildingMove;
+    move: RoadMove | BuildingMove | TradeMove;
     // This is needed to discern the different types of moves, when serializing the data its uber important
     moveType: MoveType;
 };
@@ -601,7 +647,8 @@ type ResourceTrade = {
     resource: ResourceType;
     quantity: number;
 };
-type TradeAction = {
+
+type TradeMove = {
     withPlayer: string;
     // negative quantity means 'withPlayer' recieves from player
     resourceExchange: ResourceTrade[];
@@ -613,29 +660,30 @@ class RemoteGameHandler implements ClickEventResolver {
     }
 }
 
-class NoopGameHandler implements ClickEventResolver {
-    resolve(clickEvent: ClickEvent) {
-        return;
-    }
-}
-
 class LocalGameHandler implements ClickEventResolver {
     private currentPlayerIndex: number = 0;
     private turn: number = 0;
     moveStack: GameMove[] = [];
+    private players: Player[] = [];
+    private diceRolled: boolean = false;
 
     constructor(
-        public players: string[],
+        playerColors: string[],
         public buildings: Building[],
-        public roads: Road[]
-    ) {}
+        public roads: Road[],
+        public tileGrid: TileGrid
+    ) {
+        playerColors.forEach((color) => {
+            this.players.push(new Player(color));
+        });
+    }
 
     resolve(clickEvent: ClickEvent) {
         if (clickEvent.clickable instanceof Building) {
             const building = clickEvent.clickable as Building;
             this.updateGame({
                 turn: this.turn,
-                player: this.players[this.currentPlayerIndex],
+                player: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: building.id,
                     action: BuildingActions.BUILD_SETTLEMENT,
@@ -646,7 +694,7 @@ class LocalGameHandler implements ClickEventResolver {
             const road = clickEvent.clickable as Road;
             this.updateGame({
                 turn: this.turn,
-                player: this.players[this.currentPlayerIndex],
+                player: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: road.id,
                     action: RoadActions.BUILD_ROAD,
@@ -659,10 +707,10 @@ class LocalGameHandler implements ClickEventResolver {
     updateGame(gameMove: GameMove) {
         // Check if move is valid before placing on stack
         try {
-            if (gameMove.player !== this.players[this.currentPlayerIndex])
+            if (gameMove.player !== this.players[this.currentPlayerIndex].color)
                 throw new GameError(
                     `${gameMove.player} tried to move during ${
-                        this.players[this.currentPlayerIndex]
+                        this.players[this.currentPlayerIndex].color
                     } turn.`
                 );
             else if (gameMove.turn !== this.turn) {
@@ -681,6 +729,38 @@ class LocalGameHandler implements ClickEventResolver {
         this.moveStack.push(gameMove);
     }
 
+    diceRoll(rollNumber: number) {
+        this.diceRolled = true;
+        for (const key in tileGrid.grid) {
+            if (Object.prototype.hasOwnProperty.call(tileGrid.grid, key)) {
+                const tile = tileGrid.grid[key];
+                if (tile.rollNumber === rollNumber) {
+                    tile.adjacentBuildings
+                        .filter(
+                            (building) =>
+                                building.state !== BuildingState.UNDEVELOPED
+                        )
+                        .forEach((building) => {
+                            this.updateGame({
+                                turn: this.turn,
+                                player: building.color,
+                                move: {
+                                    withPlayer: "bank",
+                                    resourceExchange: [
+                                        {
+                                            resource: tile.resourceType,
+                                            quantity: building.state,
+                                        },
+                                    ],
+                                },
+                                moveType: MoveType.TRADE,
+                            });
+                        });
+                }
+            }
+        }
+    }
+
     private handleMove(gameMove: GameMove) {
         switch (gameMove.moveType) {
             case MoveType.ROAD:
@@ -694,6 +774,12 @@ class LocalGameHandler implements ClickEventResolver {
                     gameMove.turn
                 );
                 break;
+            case MoveType.TRADE:
+                const tradeMove = gameMove.move as TradeMove;
+                if (tradeMove.withPlayer === "bank") {
+                    console.log(tradeMove);
+                }
+                break;
             case MoveType.END_PLAYER_TURN:
                 this.endPlayerTurn();
                 break;
@@ -702,6 +788,7 @@ class LocalGameHandler implements ClickEventResolver {
 
     private endPlayerTurn() {
         this.currentPlayerIndex += 1;
+        this.diceRolled = false;
         if (this.currentPlayerIndex >= this.players.length) {
             this.turn += 1;
             this.currentPlayerIndex = 0;
@@ -761,7 +848,8 @@ const roads: Road[] = [];
 const gameHandler = new LocalGameHandler(
     [PlayerColors.RED, PlayerColors.BLUE],
     buildings,
-    roads
+    roads,
+    tileGrid
 );
 
 const clickHandler = new ClickHandler(canvas, gameHandler);
@@ -797,15 +885,16 @@ tileGrid.edges.forEach((edge, index) => {
 });
 
 for (let i = 0; i < roads.length; i++) {
-    const adjacentBuildings = buildings.filter(
-        (building) =>
-            building.vertex === roads[i].edge.v1 ||
-            building.vertex === roads[i].edge.v2
-    );
-    adjacentBuildings.forEach((building) => {
-        roads[i].adjacentBuildings.push(building);
-        building.adjacentRoads.push(roads[i]);
-    });
+    buildings
+        .filter(
+            (building) =>
+                building.vertex === roads[i].edge.v1 ||
+                building.vertex === roads[i].edge.v2
+        )
+        .forEach((building) => {
+            roads[i].adjacentBuildings.push(building);
+            building.adjacentRoads.push(roads[i]);
+        });
 
     for (let j = 0; j < roads.length; j++) {
         if (roads[i] === roads[j]) continue;
@@ -816,6 +905,17 @@ for (let i = 0; i < roads.length; i++) {
             roads[i].edge.v2 == roads[j].edge.v2
         )
             roads[i].adjacentRoads.push(roads[j]);
+    }
+}
+
+for (const key in tileGrid.grid) {
+    if (tileGrid.grid.hasOwnProperty(key)) {
+        const tile = tileGrid.grid[key];
+        tile.hexagon.vertices.forEach((vertex) => {
+            tile.adjacentBuildings.push(
+                buildings.find((building) => building.vertex == vertex)
+            );
+        });
     }
 }
 
