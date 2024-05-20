@@ -458,6 +458,7 @@ class LocalGameHandler {
         this.roads = roads;
         this.tileGrid = tileGrid;
         this.bank = bank;
+        this.firstRoundPlaced = false;
         this.currentPlayerIndex = 0;
         this.turn = 0;
         this.moveStack = [];
@@ -496,7 +497,6 @@ class LocalGameHandler {
         }
     }
     updateGame(gameMove) {
-        // Check if move is valid before placing on stack
         try {
             if (gameMove.playerColor !==
                 this.players[this.currentPlayerIndex].color &&
@@ -505,7 +505,13 @@ class LocalGameHandler {
             else if (gameMove.turn !== this.turn) {
                 throw new GameError(`${gameMove.playerColor}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`);
             }
-            this.handleMove(gameMove);
+            if (this.turn === 0) {
+                this.handleFirstMove(gameMove);
+            }
+            else {
+                this.handleMove(gameMove);
+            }
+            this.moveStack.push(gameMove);
         }
         catch (error) {
             if (error instanceof GameError) {
@@ -515,7 +521,6 @@ class LocalGameHandler {
                 console.error("Unknown Error: ", error.message);
             }
         }
-        this.moveStack.push(gameMove);
     }
     diceRoll(rollNumber) {
         this.diceRolled = true;
@@ -543,6 +548,40 @@ class LocalGameHandler {
                     });
                 }
             }
+        }
+    }
+    handleFirstMove(gameMove) {
+        switch (gameMove.moveType) {
+            case MoveType.ROAD:
+                const roadMove = gameMove.move;
+                if (this.moveStack[this.moveStack.length - 1].moveType ===
+                    MoveType.ROAD) {
+                    throw new GameError("Build building first");
+                }
+                const move = this.moveStack[this.moveStack.length - 1]
+                    .move;
+                if (!this.roads[roadMove.id].adjacentBuildings.find((building) => building === this.buildings[move.id])) {
+                    throw new GameError("Build road next to new building");
+                }
+                if (this.firstRoundPlaced) {
+                    this.currentPlayerIndex -= 1;
+                    if (this.currentPlayerIndex < 0) {
+                        this.turn += 1;
+                        this.currentPlayerIndex = 0;
+                    }
+                }
+                else if (this.currentPlayerIndex >= this.players.length - 1)
+                    this.firstRoundPlaced = true;
+                else
+                    this.currentPlayerIndex += 1;
+                this.roads[roadMove.id].buildRoad(gameMove.playerColor);
+                break;
+            case MoveType.BUILDING:
+                const buildMove = gameMove.move;
+                this.buildings[buildMove.id].buildSettlement(gameMove.playerColor, gameMove.turn);
+                break;
+            default:
+                throw new GameError("Invalid first move turn");
         }
     }
     handleMove(gameMove) {
