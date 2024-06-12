@@ -2,9 +2,7 @@
 
 NOT Settlers of Catan
 
--   First turn, gurantee one building/ road TWICE
--   Buy cities/Settlements/roads/ dev cards
--   Trades
+-   Buy cities/dev cards
 -   UI system (end turn, card counts, trades)
 -   Robber + UI
 -   Development card effects + UI
