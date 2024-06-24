@@ -2,11 +2,12 @@
 
 NOT Settlers of Catan
 
--   Buy cities/dev cards
+-   Buy dev cards
 -   UI system (end turn, card counts, trades)
 -   Robber + UI
 -   Development card effects + UI
--   Victory points, (Biggest army, longest road) + UI
+-   ports and port trading
+-   Victory points, (Biggest army, longest road) + U
 -   Win de game logic
 
 ---

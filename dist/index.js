@@ -22,14 +22,21 @@ var ResourceType;
     ResourceType["WOOD"] = "green";
     ResourceType["DESERT"] = "gray";
 })(ResourceType || (ResourceType = {}));
+const ResourceGraphics = {
+    Tomato: "🧱",
+    "#FFBF00": "🌾",
+    MediumSeaGreen: "🐄",
+    lightgray: "🪨",
+    green: "🪵",
+};
 var PlayerColors;
 (function (PlayerColors) {
-    PlayerColors["WHITE"] = "white";
-    PlayerColors["RED"] = "red";
-    PlayerColors["BLACK"] = "black";
-    PlayerColors["GREEN"] = "green";
-    PlayerColors["BLUE"] = "blue";
-    PlayerColors["YELLOW"] = "yellow";
+    PlayerColors["WHITE"] = "White";
+    PlayerColors["RED"] = "Red";
+    PlayerColors["BLACK"] = "Black";
+    PlayerColors["GREEN"] = "Green";
+    PlayerColors["BLUE"] = "Blue";
+    PlayerColors["YELLOW"] = "Yellow";
 })(PlayerColors || (PlayerColors = {}));
 var BuildingState;
 (function (BuildingState) {
@@ -216,7 +223,7 @@ class TileGrid {
         for (let q = -this.gridRadius; q <= this.gridRadius; q++) {
             for (let r = Math.max(-this.gridRadius, -q - this.gridRadius); r <= Math.min(this.gridRadius, -q + this.gridRadius); r++) {
                 const key = `${q},${r}`;
-                const rollNumber = Math.floor(Math.random() * 11 + 1);
+                const rollNumber = Math.floor(Math.random() * 11 + 1.9999);
                 const resource = rollNumber === 7
                     ? ResourceType.DESERT
                     : tileResourceDistributor.getRandomResource();
@@ -277,18 +284,52 @@ class Building {
         this.color = playerColor;
         this.state = BuildingState.SETTLEMENT;
     }
+    buildCity(playerColor, turn) {
+        if (this.state != BuildingState.SETTLEMENT)
+            throw new GameError(`${playerColor} tried to build on invalid space owned by ${this.color}`);
+        this.color = playerColor;
+        this.state = BuildingState.CITY;
+    }
     draw(ctx) {
         ctx.save();
         switch (this.state) {
             case BuildingState.UNDEVELOPED:
                 break;
             case BuildingState.CITY:
+                let spikes = 5;
+                let radius = 40;
+                let innerRadius = 20;
+                let rot = (Math.PI / 2) * 3;
+                let step = Math.PI / spikes;
+                let cx = this.vertex.x;
+                let cy = this.vertex.y;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy - radius);
+                for (let i = 0; i < spikes; i++) {
+                    let x = cx + Math.cos(rot) * radius;
+                    let y = cy + Math.sin(rot) * radius;
+                    ctx.lineTo(x, y);
+                    rot += step;
+                    x = cx + Math.cos(rot) * innerRadius;
+                    y = cy + Math.sin(rot) * innerRadius;
+                    ctx.lineTo(x, y);
+                    rot += step;
+                }
+                ctx.lineTo(cx, cy - radius);
+                ctx.closePath();
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 5;
+                ctx.fill();
+                ctx.stroke();
+                break;
             case BuildingState.SETTLEMENT:
                 ctx.fillStyle = this.color;
                 ctx.fillRect(this.vertex.x - 20, this.vertex.y - 20, 40, 40);
                 ctx.strokeStyle = "black";
                 ctx.lineWidth = 5;
                 ctx.strokeRect(this.vertex.x - 20, this.vertex.y - 20, 40, 40);
+                break;
         }
         ctx.restore();
     }
@@ -393,8 +434,9 @@ class Game {
     }
 }
 class Player {
-    constructor(color, buildableSettlements = 5, buildableCities = 4, buildableRoads = 15) {
+    constructor(color, playerUI, buildableSettlements = 5, buildableCities = 4, buildableRoads = 15) {
         this.color = color;
+        this.playerUI = playerUI;
         this.buildableSettlements = buildableSettlements;
         this.buildableCities = buildableCities;
         this.buildableRoads = buildableRoads;
@@ -403,6 +445,7 @@ class Player {
             const value = ResourceType[key];
             this.resources[value] = 0;
         });
+        this.displayCounts();
     }
     isTradeValid(trade) {
         return !trade.find((resource) => resource.quantity + this.resources[resource.resource] < 0);
@@ -411,11 +454,25 @@ class Player {
         trade.forEach((resource) => {
             this.resources[resource.resource] += resource.quantity;
         });
+        this.displayCounts();
+    }
+    displayCounts() {
+        this.playerUI.innerHTML = "";
+        for (const resource in this.resources) {
+            if (Object.prototype.hasOwnProperty.call(this.resources, resource)) {
+                if (resource === "gray")
+                    return;
+                const element = this.resources[resource];
+                this.playerUI.innerHTML += `${ResourceGraphics[resource]} : ${element}`;
+            }
+        }
     }
 }
 class Bank {
-    constructor(resources) {
+    constructor(resources, bankUI) {
         this.resources = resources;
+        this.bankUI = bankUI;
+        this.displayCounts();
     }
     isTradeValid(trade) {
         return !trade.find((resource) => resource.quantity + this.resources[resource.resource] < 0);
@@ -424,6 +481,18 @@ class Bank {
         trade.forEach((resource) => {
             this.resources[resource.resource] += resource.quantity;
         });
+        this.displayCounts();
+    }
+    displayCounts() {
+        this.bankUI.innerHTML = "";
+        for (const resource in this.resources) {
+            if (Object.prototype.hasOwnProperty.call(this.resources, resource)) {
+                if (resource === "gray")
+                    return;
+                const element = this.resources[resource];
+                this.bankUI.innerHTML += `${ResourceGraphics[resource]} : ${element}`;
+            }
+        }
     }
 }
 class GameError extends Error {
@@ -466,8 +535,15 @@ class LocalGameHandler {
         this.players = [];
         this.colorIndex = {};
         this.diceRolled = false;
+        const playerdata = document.getElementById("playerdatas");
         playerColors.forEach((color, index) => {
-            this.players.push(new Player(color));
+            const header = document.createElement("h3");
+            header.innerHTML = color;
+            header.className = "character-title";
+            playerdata.appendChild(header);
+            const playerUI = document.createElement("div");
+            playerdata.appendChild(playerUI);
+            this.players.push(new Player(color, playerUI));
             this.colorIndex[color] = index;
         });
         for (const key in tileGrid.grid) {
@@ -526,7 +602,9 @@ class LocalGameHandler {
                 playerColor: this.players[this.currentPlayerIndex].color,
                 move: {
                     id: building.id,
-                    action: BuildingActions.BUILD_SETTLEMENT,
+                    action: building.state === BuildingState.UNDEVELOPED
+                        ? BuildingActions.BUILD_SETTLEMENT
+                        : BuildingActions.BUILD_CITY,
                 },
                 moveType: MoveType.BUILDING,
             });
@@ -689,34 +767,58 @@ class LocalGameHandler {
                 break;
             case MoveType.BUILDING:
                 const buildMove = gameMove.move;
-                const buildTrade = {
-                    turn: this.turn,
-                    playerColor: gameMove.playerColor,
-                    move: {
-                        withPlayer: "bank",
-                        resourceExchange: [
-                            {
-                                resource: ResourceType.BRICK,
-                                quantity: -1,
-                            },
-                            {
-                                resource: ResourceType.CATTLE,
-                                quantity: -1,
-                            },
-                            {
-                                resource: ResourceType.WOOD,
-                                quantity: -1,
-                            },
-                            {
-                                resource: ResourceType.WHEAT,
-                                quantity: -1,
-                            },
-                        ],
-                    },
-                    moveType: MoveType.TRADE,
-                };
-                this.handleMove(buildTrade);
-                this.buildings[buildMove.id].buildSettlement(gameMove.playerColor, gameMove.turn);
+                if (buildMove.action === BuildingActions.BUILD_SETTLEMENT) {
+                    const buildTrade = {
+                        turn: this.turn,
+                        playerColor: gameMove.playerColor,
+                        move: {
+                            withPlayer: "bank",
+                            resourceExchange: [
+                                {
+                                    resource: ResourceType.BRICK,
+                                    quantity: -1,
+                                },
+                                {
+                                    resource: ResourceType.CATTLE,
+                                    quantity: -1,
+                                },
+                                {
+                                    resource: ResourceType.WOOD,
+                                    quantity: -1,
+                                },
+                                {
+                                    resource: ResourceType.WHEAT,
+                                    quantity: -1,
+                                },
+                            ],
+                        },
+                        moveType: MoveType.TRADE,
+                    };
+                    this.handleMove(buildTrade);
+                    this.buildings[buildMove.id].buildSettlement(gameMove.playerColor, gameMove.turn);
+                }
+                else {
+                    const buildTrade = {
+                        turn: this.turn,
+                        playerColor: gameMove.playerColor,
+                        move: {
+                            withPlayer: "bank",
+                            resourceExchange: [
+                                {
+                                    resource: ResourceType.ORE,
+                                    quantity: -3,
+                                },
+                                {
+                                    resource: ResourceType.WHEAT,
+                                    quantity: -2,
+                                },
+                            ],
+                        },
+                        moveType: MoveType.TRADE,
+                    };
+                    this.handleMove(buildTrade);
+                    this.buildings[buildMove.id].buildCity(gameMove.playerColor, gameMove.turn);
+                }
                 break;
             case MoveType.TRADE:
                 const tradeMove = gameMove.move;
@@ -725,7 +827,7 @@ class LocalGameHandler {
                     : this.players[this.colorIndex[tradeMove.withPlayer]];
                 if (!player.isTradeValid(tradeMove.resourceExchange) ||
                     !tradingWith.isTradeValid(tradeMove.resourceExchange))
-                    throw new GameError(`Invalid trade, ${tradeMove.resourceExchange.toString()}`);
+                    throw new GameError(`Invalid trade,`);
                 tradingWith.trade(tradeMove.resourceExchange.map((element) => {
                     return {
                         resource: element.resource,
@@ -791,7 +893,7 @@ Object.keys(ResourceType).forEach((key) => {
     const value = ResourceType[key];
     resourceCounts[value] = 19;
 });
-const gameHandler = new LocalGameHandler([PlayerColors.RED], buildings, roads, tileGrid, new Bank(resourceCounts));
+const gameHandler = new LocalGameHandler([PlayerColors.RED, PlayerColors.BLUE], buildings, roads, tileGrid, new Bank(resourceCounts, document.getElementById("bank")));
 const endTurnButton = document.getElementById("end-turn");
 endTurnButton.addEventListener("", () => { });
 const clickHandler = new ClickHandler(canvas, gameHandler);

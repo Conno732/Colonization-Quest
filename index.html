@@ -48,7 +48,7 @@
                 justify-content: start;
                 align-items: center;
                 flex-direction: column;
-                background: #919de1;
+                background: #6d75a1;
                 border-radius: 5%;
                 border: #ccc solid;
                 margin: 2%;
@@ -82,6 +82,14 @@
             .game-button:active {
                 background-color: #a93226;
             }
+
+            .character-data {
+                font-size: large;
+            }
+
+            .character-title {
+                margin-bottom: 0px;
+            }
         </style>
     </head>
     <body>
@@ -89,8 +97,11 @@
             <div id="GameUI">
                 <div class="title">Colonization Quest</div>
                 <div class="gameData">
-                    <div id="bank">h</div>
-                    <div id="playerdatas">s</div>
+                    <div>
+                        <h3 class="character-title">Bank</h3>
+                        <div class="character-data" id="bank"></div>
+                    </div>
+                    <div id="playerdatas"></div>
                 </div>
                 <div>
                     <button id="end-turn" class="game-button">End Turn</button>
