@@ -1,116 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Game Canvas</title>
-        <style>
-            body,
-            html {
-                margin: 0;
-                padding: 0;
-                overflow: hidden;
-                width: 100%;
-                height: 100%;
-                background-color: rgb(21, 51, 33);
-            }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game Canvas</title>
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        background-color: rgb(21, 51, 33);
+      }
 
-            canvas {
-                display: block;
-                background: radial-gradient(circle, #09cbfc, #0503ae);
-                margin: 0 auto;
-                border: 2px solid #ccc;
-                height: 100%;
-                width: 100%;
-                border-radius: 1%;
-            }
+      canvas {
+        display: block;
+        background: radial-gradient(circle, #09cbfc, #0503ae);
+        margin: 0 auto;
+        border: 2px solid #ccc;
+        height: 100%;
+        width: 100%;
+        border-radius: 1%;
+      }
 
-            #container {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100%;
-                width: 100%;
-            }
+      #container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        width: 100%;
+      }
 
-            #gameContainer {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100%;
-                width: 100%;
-            }
+      #gameContainer {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        width: 100%;
+      }
 
-            #GameUI {
-                height: 90%;
-                width: 25%;
-                display: flex;
-                justify-content: start;
-                align-items: center;
-                flex-direction: column;
-                background: #6d75a1;
-                border-radius: 5%;
-                border: #ccc solid;
-                margin: 2%;
-                margin-right: 0;
-            }
-            .title {
-                margin: 10px;
-                font-family: "Courier New", Courier, monospace;
-                font-size: large;
-                font-weight: bolder;
-                border-bottom: black solid;
-            }
-            .game-button {
-                background-color: #f30c0c;
-                border: none;
-                color: white;
-                padding: 15px 30px;
-                text-align: center;
-                display: inline-block;
-                font-size: 16px;
-                margin: 4px 2px;
-                cursor: pointer;
-                border-radius: 12px;
-                transition: background-color 0.1s ease;
-            }
+      #GameUI {
+        height: 90%;
+        width: 25%;
+        display: flex;
+        justify-content: start;
+        align-items: center;
+        flex-direction: column;
+        background: #6d75a1;
+        border-radius: 5%;
+        border: #ccc solid;
+        margin: 2%;
+        margin-right: 0;
+      }
+      .title {
+        margin: 10px;
+        font-family: "Courier New", Courier, monospace;
+        font-size: large;
+        font-weight: bolder;
+        border-bottom: black solid;
+      }
+      .game-button {
+        background-color: #a342c1;
+        border: none;
+        color: white;
+        padding: 15px 30px;
+        text-align: center;
+        display: inline-block;
+        font-size: 16px;
+        margin: 4px 2px;
+        cursor: pointer;
+        border-radius: 12px;
+        transition: background-color 0.1s ease;
+      }
 
-            .game-button:hover {
-                background-color: #c0392b;
-            }
+      .game-button.disabled {
+        background-color: #67536d;
+      }
 
-            .game-button:active {
-                background-color: #a93226;
-            }
+      .game-button:hover {
+        background-color: #8a39a3;
+      }
 
-            .character-data {
-                font-size: large;
-            }
+      .game-button:active {
+        background-color: #76328b;
+      }
 
-            .character-title {
-                margin-bottom: 0px;
-            }
-        </style>
-    </head>
-    <body>
-        <div id="gameContainer">
-            <div id="GameUI">
-                <div class="title">Colonization Quest</div>
-                <div class="gameData">
-                    <div>
-                        <h3 class="character-title">Bank</h3>
-                        <div class="character-data" id="bank"></div>
-                    </div>
-                    <div id="playerdatas"></div>
-                </div>
-                <div>
-                    <button id="end-turn" class="game-button">End Turn</button>
-                </div>
-            </div>
-            <div id="container">
-                <canvas id="gameCanvas"></canvas>
-            </div>
+      .character-data {
+        font-size: large;
+      }
+
+      .character-title {
+        margin-bottom: 0px;
+      }
+
+      #turn-log {
+        white-space: pre-wrap;
+        resize: none;
+        width: 100%;
+        overflow-y: scroll;
+        height: 200px;
+      }
+
+      .log-container {
+        width: 80%;
+        padding: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="gameContainer">
+      <div id="GameUI">
+        <div class="title">Colonization Quest</div>
+        <div class="gameData">
+          <div>
+            <h3 class="character-title">Bank</h3>
+            <div class="character-data" id="bank"></div>
+          </div>
+          <div id="playerdatas"></div>
         </div>
-    </body>
-    <script src="dist/index.js"></script>
+        <div class="log-container">
+          <h2>Turn Log</h2>
+          <p id="turn-log"></p>
+        </div>
+        <div>
+          <button id="roll-dice" class="game-button">Roll Dice</button>
+          <button id="end-turn" class="game-button">End Turn</button>
+        </div>
+      </div>
+      <div id="container">
+        <canvas id="gameCanvas"></canvas>
+      </div>
+    </div>
+  </body>
+  <script src="dist/index.js"></script>
 </html>

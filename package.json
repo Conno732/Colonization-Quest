@@ -13,5 +13,8 @@
         "clean": "tsc --build --clean"
     },
     "author": "",
-    "license": "ISC"
+    "license": "ISC",
+    "dependencies": {
+        "firebase": "^11.1.0"
+    }
 }

@@ -3,36 +3,24 @@ const canvas: HTMLCanvasElement | null = document.getElementById(
 ) as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
 
-canvas.width = 2160;
-canvas.height = 1440;
-canvas.style.width = "1080px";
-canvas.style.height = "720px";
+// Import the functions you need from the SDKs you need
+// import { initializeApp } from "firebase/app";
+// import { Database, getDatabase } from "firebase/database";
+// // TODO: Add SDKs for Firebase products that you want to use
+// // https://firebase.google.com/docs/web/setup#available-libraries
 
-enum ResourceType {
-  BRICK = "Tomato",
-  WHEAT = "#FFBF00",
-  CATTLE = "MediumSeaGreen",
-  ORE = "lightgray",
-  WOOD = "green",
-  DESERT = "gray",
-}
+// const firebaseConfig = {
+//   apiKey: "AIzaSyB8tH36KQj_3jlMAmemMSupEUxCrkLvhN8",
+//   authDomain: "colonyquest-89f6d.firebaseapp.com",
+//   projectId: "colonyquest-89f6d",
+//   storageBucket: "colonyquest-89f6d.firebasestorage.app",
+//   messagingSenderId: "632714343538",
+//   appId: "1:632714343538:web:1308fc932c73998516beeb",
+//   databaseURL: "https://colonyquest-89f6d-default-rtdb.firebaseio.com/",
+// };
 
-const ResourceGraphics = {
-  Tomato: "🧱",
-  "#FFBF00": "🌾",
-  MediumSeaGreen: "🐄",
-  lightgray: "🪨",
-  green: "🪵",
-};
-
-enum PlayerColors {
-  WHITE = "White",
-  RED = "Red",
-  BLACK = "Black",
-  GREEN = "Green",
-  BLUE = "Blue",
-  YELLOW = "Yellow",
-}
+// const firebaseApp = initializeApp(firebaseConfig);
+// const database: Database = getDatabase(firebaseApp);
 
 enum BuildingState {
   UNDEVELOPED,
@@ -67,48 +55,38 @@ enum RenderLayers {
 
 class RenderService {
   // order in which layers are drawn, 0 is drawn first
-  private renderLayers: Renderable[][];
-  private renderLayerMap: RenderLayerMap;
+  private renderLayers: Renderable[][] = [];
+  private renderLayerMap = new Map<RenderLayers, number>();
 
   /**
-   *
    * @param renderingContext Canvas rendering context
    * @param renderLayerOrder Order in which layers are drawn, 0 is drawn first
-   * @param debug Debug flag
    */
   constructor(
     public renderingContext: CanvasRenderingContext2D,
-    renderLayerOrder: RenderLayers[],
-    public debug: boolean = false
+    renderLayerOrder: RenderLayers[]
   ) {
-    this.renderLayers = [];
-    this.renderLayerMap = {};
-    for (let i = 0; i < renderLayerOrder.length; i++) {
-      this.renderLayerMap[renderLayerOrder[i]] = i;
+    renderLayerOrder.forEach((value, index) => {
+      this.renderLayerMap[value] = index;
       this.renderLayers.push([]);
-    }
-    if (debug) {
-      console.log(this.renderLayerMap, this.renderLayers);
-    }
+    });
   }
 
   renderFrame() {
-    for (let j = 0; j < this.renderLayers.length; j++) {
-      const objects = this.renderLayers[j];
-      for (let i = 0; i < objects.length; i++)
-        objects[i].draw(this.renderingContext);
-    }
+    this.renderLayers.forEach((renderableList) => {
+      renderableList.forEach((renderable) =>
+        renderable.draw(this.renderingContext)
+      );
+    });
   }
 
-  addElement(layer: string, renderable: Renderable) {
+  addElement(layer: RenderLayers, renderable: Renderable) {
     this.renderLayers[this.renderLayerMap[layer]].push(renderable);
   }
 }
 
 interface Clickable {
-  /** Gets the 'z depth' of the object, higher is farther away
-   *
-   */
+  // Gets the 'z depth' of the object, higher is farther away
   getDepth(): number;
   // Probs would be interesting to implement this if more complicated resolutions are required for overlapping clickables
   // isBlocking(): boolean;
@@ -163,9 +141,11 @@ function axialToPixel(
   return { x, y, connectedEdges: [] };
 }
 
+// Floating point shenanigans, yippee!
 function areNumbersEqual(
   num1: number,
   num2: number,
+  // TODO this value ought to live somewhere else, it's too magical for my liking
   epsilon: number = 0.1
 ): boolean {
   return Math.abs(num1 - num2) < epsilon;
@@ -251,6 +231,7 @@ class Tile implements Renderable {
     public rollNumber: number,
     public resourceType: ResourceType
   ) {}
+
   draw(ctx: CanvasRenderingContext2D): void {
     ctx.save();
     const edges = this.hexagon.edges;
@@ -351,11 +332,11 @@ class TileResourceDistributer {
   weightedResourceTable: ResourceType[] = [];
 
   constructor(resourceTileWeights: ResourceWeight[]) {
-    for (let j = 0; j < resourceTileWeights.length; j++) {
-      for (let i = 0; i < resourceTileWeights[j].weight * 100; i++) {
-        this.weightedResourceTable.push(resourceTileWeights[j].resource);
+    resourceTileWeights.forEach((resourceWeight) => {
+      for (let i = 0; i < resourceWeight.weight * 100; i++) {
+        this.weightedResourceTable.push(resourceWeight.resource);
       }
-    }
+    });
   }
 
   getRandomResource(): ResourceType {
@@ -365,17 +346,9 @@ class TileResourceDistributer {
   }
 }
 
-const resourceTileWeights = [
-  { resource: ResourceType.BRICK, weight: 0.2 },
-  { resource: ResourceType.WHEAT, weight: 0.2 },
-  { resource: ResourceType.CATTLE, weight: 0.2 },
-  { resource: ResourceType.ORE, weight: 0.2 },
-  { resource: ResourceType.WOOD, weight: 0.2 },
-];
-
 class Building implements Renderable, Clickable {
   state: BuildingState = BuildingState.UNDEVELOPED;
-  color: string;
+  color: PlayerColors;
   adjacentTiles: Tile[] = [];
   adjacentBuildings: Building[] = [];
   adjacentRoads: Road[] = [];
@@ -400,24 +373,19 @@ class Building implements Renderable, Clickable {
       : this.adjacentBuildings.find((building) => building.color);
   }
 
-  buildSettlement(playerColor: string, turn: number) {
-    if (this.state != BuildingState.UNDEVELOPED)
-      throw new GameError(
-        `${playerColor} tried to build on invalid space owned by ${this.color}`
-      );
-    else if (this.buildInvalid(playerColor, turn))
-      throw new GameError(
-        `${playerColor} tried to too close to another settlement or by no adjacent roads`
-      );
+  buildSettlement(playerColor: PlayerColors, turn: number) {
+    if (
+      this.state != BuildingState.UNDEVELOPED ||
+      this.buildInvalid(playerColor, turn)
+    )
+      throw new GameError(`${playerColor} tried to build on invalid space`);
     this.color = playerColor;
     this.state = BuildingState.SETTLEMENT;
   }
 
-  buildCity(playerColor: string, turn: number) {
-    if (this.state != BuildingState.SETTLEMENT)
-      throw new GameError(
-        `${playerColor} tried to build on invalid space owned by ${this.color}`
-      );
+  buildCity(playerColor: PlayerColors) {
+    if (this.state != BuildingState.SETTLEMENT || this.color !== playerColor)
+      throw new GameError(`${playerColor} tried to upgrade an invalid space`);
     this.color = playerColor;
     this.state = BuildingState.CITY;
   }
@@ -471,8 +439,7 @@ class Building implements Renderable, Clickable {
   }
 }
 class Road implements Renderable, Clickable {
-  color: string;
-  isBuilt: boolean;
+  color: PlayerColors;
   adjacentRoads: Road[] = [];
   adjacentBuildings: Building[] = [];
 
@@ -489,16 +456,9 @@ class Road implements Renderable, Clickable {
     );
   }
 
-  buildRoad(playerColor: string) {
-    if (this.isBuilt)
-      throw new GameError(
-        `${playerColor} tried to build on a road owned by ${this.color}`
-      );
-    else if (this.buildInvalid(playerColor))
-      throw new GameError(
-        `${playerColor} has no adjacent roads or buildings here`
-      );
-    this.isBuilt = true;
+  buildRoad(playerColor: PlayerColors) {
+    if (this.color !== null || this.buildInvalid(playerColor))
+      throw new GameError(`${playerColor} tried invalid road build`);
     this.color = playerColor;
   }
 
@@ -524,7 +484,7 @@ class Road implements Renderable, Clickable {
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
-    if (this.isBuilt) {
+    if (this.color !== null) {
       ctx.save();
 
       ctx.fillStyle = this.color;
@@ -536,6 +496,7 @@ class Road implements Renderable, Clickable {
       const height = Math.abs(this.edge.v2.y - this.edge.v1.y);
 
       // When the road is vertical I can't figure out how to not hardcode it
+      // Wierd stuff happens otherwise DDD: ...
       if (Math.abs(this.edge.v1.x - this.edge.v2.x) < 0.1) {
         const yVal =
           this.edge.v1.y < this.edge.v2.y ? this.edge.v1.y : this.edge.v2.y;
@@ -615,8 +576,7 @@ type ResourceCounts = {
 class Player {
   resources: ResourceCounts = {};
   constructor(
-    public color: string,
-    public playerUI: HTMLElement,
+    public color: PlayerColors,
     public buildableSettlements: number = 5,
     public buildableCities: number = 4,
     public buildableRoads: number = 15
@@ -625,61 +585,38 @@ class Player {
       const value = ResourceType[key as keyof typeof ResourceType];
       this.resources[value] = 0;
     });
-    this.displayCounts();
   }
 
-  isTradeValid(trade: ResourceTrade[]): boolean {
+  private isTradeValid(trade: ResourceTrade[]): boolean {
     return !trade.find(
       (resource) => resource.quantity + this.resources[resource.resource] < 0
     );
   }
 
   trade(trade: ResourceTrade[]) {
+    if (!this.isTradeValid(trade))
+      throw new GameError(`Invalid resource trade`);
     trade.forEach((resource) => {
       this.resources[resource.resource] += resource.quantity;
     });
-    this.displayCounts();
-  }
-
-  private displayCounts() {
-    this.playerUI.innerHTML = "";
-    for (const resource in this.resources) {
-      if (Object.prototype.hasOwnProperty.call(this.resources, resource)) {
-        if (resource === "gray") return;
-        const element = this.resources[resource];
-        this.playerUI.innerHTML += `${ResourceGraphics[resource]} : ${element}`;
-      }
-    }
   }
 }
 
 class Bank {
-  constructor(public resources: ResourceCounts, public bankUI: HTMLElement) {
-    this.displayCounts();
-  }
+  constructor(public resources: ResourceCounts) {}
 
-  isTradeValid(trade: ResourceTrade[]): boolean {
+  private isTradeValid(trade: ResourceTrade[]): boolean {
     return !trade.find(
       (resource) => resource.quantity + this.resources[resource.resource] < 0
     );
   }
 
   trade(trade: ResourceTrade[]) {
+    if (!this.isTradeValid(trade))
+      throw new GameError(`Invalid resource trade`);
     trade.forEach((resource) => {
       this.resources[resource.resource] += resource.quantity;
     });
-    this.displayCounts();
-  }
-
-  private displayCounts() {
-    this.bankUI.innerHTML = "";
-    for (const resource in this.resources) {
-      if (Object.prototype.hasOwnProperty.call(this.resources, resource)) {
-        if (resource === "gray") return;
-        const element = this.resources[resource];
-        this.bankUI.innerHTML += `${ResourceGraphics[resource]} : ${element}`;
-      }
-    }
   }
 }
 
@@ -690,11 +627,16 @@ class GameError extends Error {
   }
 }
 
+// Player turns are a series of moves
 enum MoveType {
-  BUILDING,
-  ROAD,
-  TRADE,
-  END_PLAYER_TURN,
+  BUILDING = "building",
+  ROAD = "road",
+  TRADE = "trade",
+  END_PLAYER_TURN = "end",
+
+  // Used for displaying trades that are done during a diceroll with the bank
+  DICE_ROLL_START = "drs",
+  DICE_ROLL_END = "dre",
 }
 
 enum BuildingActions {
@@ -716,10 +658,12 @@ type RoadMove = {
   action: RoadActions;
 };
 
+// A player's turn is semantically defined by a series of game moves,
+//  starting the end of the previous player's end move, and ending with the current player's end move.
 type GameMove = {
   turn: number;
-  playerColor: string;
-  move: RoadMove | BuildingMove | TradeMove;
+  playerColor: PlayerColors;
+  move: RoadMove | BuildingMove | TradeMove | EndMove;
   // This is needed to discern the different types of moves, when serializing the data its uber important
   moveType: MoveType;
 };
@@ -735,43 +679,122 @@ type TradeMove = {
   resourceExchange: ResourceTrade[];
 };
 
-class RemoteGameHandler implements ClickEventResolver {
-  resolve(clickEvent: ClickEvent) {
+type EndMove = {};
+
+// logic for handling any player specific views
+interface PlayerView {
+  displayView(moveStack: GameMove[], diceRolled: boolean);
+}
+
+class SinglePlayerView implements PlayerView {
+  private bankUi: HTMLElement;
+  private playerUi: HTMLElement;
+  private logUi: HTMLElement;
+
+  constructor(
+    private player: Player,
+    private bank: Bank,
+    private rollDiceTurnButton: HTMLElement,
+    private endTurnButton: HTMLElement
+  ) {
+    this.logUi = document.getElementById("turn-log");
+    const playerdataUi = document.getElementById("playerdatas");
+    this.bankUi = playerdataUi.appendChild(document.getElementById("bank"));
+
+    const header = playerdataUi.appendChild(document.createElement("h3"));
+    header.innerHTML = player.color;
+    header.className = "character-title";
+    this.playerUi = playerdataUi.appendChild(document.createElement("div"));
+
+    this.displayView([], true);
+  }
+
+  public displayView(moveStack: GameMove[], diceRolled: boolean) {
+    const topMove = moveStack.at(-1);
+    this.playerUi.innerHTML = "";
+    for (const resource in this.player.resources) {
+      if (
+        Object.prototype.hasOwnProperty.call(this.player.resources, resource)
+      ) {
+        if (resource === "gray") continue;
+        const element = this.player.resources[resource];
+        this.playerUi.innerHTML += `${ResourceGraphics[resource]} : ${element}`;
+      }
+    }
+
+    this.bankUi.innerHTML = "";
+    for (const resource in this.bank.resources) {
+      if (Object.prototype.hasOwnProperty.call(this.bank.resources, resource)) {
+        if (resource === "gray") continue;
+        const element = this.bank.resources[resource];
+        this.bankUi.innerHTML += `${ResourceGraphics[resource]} : ${element}`;
+      }
+    }
+
+    if (
+      topMove != null &&
+      topMove.playerColor === this.player.color &&
+      topMove.turn !== 0
+    ) {
+      this.endTurnButton.classList.remove("disabled");
+      this.rollDiceTurnButton.classList.remove("disabled");
+      if (diceRolled) {
+        this.rollDiceTurnButton.classList.add("disabled");
+      }
+    } else {
+      this.endTurnButton.classList.add("disabled");
+      this.rollDiceTurnButton.classList.add("disabled");
+    }
+
+    let text = "";
+    console.log(moveStack);
+    moveStack.forEach((move) => {
+      text += `Turn ${move.turn}: ${move.playerColor} makes a ${move.moveType} move \n`;
+    });
+    this.logUi.innerText = text;
+  }
+}
+
+// For debugging mainly
+class AllPlayerView implements PlayerView {
+  players: Player[];
+  playerUIs: { [playerColors: string]: HTMLElement };
+  bank: Bank;
+
+  displayView(moveStack: GameMove[], diceRolled: boolean) {
     throw new Error("Method not implemented.");
   }
 }
 
+// Somewhat bloated class, but centralizes all the game logic
 class LocalGameHandler implements ClickEventResolver {
   private firstRoundPlaced: boolean = false;
   private currentPlayerIndex: number = 0;
   private turn: number = 0;
+
+  // Local game is the authority on the move stack
   moveStack: GameMove[] = [];
-  private players: Player[] = [];
+  // Maps turn order to player
   private colorIndex = {};
   private diceRolled: boolean = false;
 
   constructor(
-    playerColors: string[],
+    // order of players dictates turn order
+    public players: Player[],
     public buildings: Building[],
     public roads: Road[],
     public tileGrid: TileGrid,
-    public bank: Bank
+    public bank: Bank,
+    // Game host's view
+    public playerView: PlayerView
   ) {
-    const playerdata = document.getElementById("playerdatas");
-    playerColors.forEach((color, index) => {
-      const header = document.createElement("h3");
-      header.innerHTML = color;
-      header.className = "character-title";
-      playerdata.appendChild(header);
-      const playerUI = document.createElement("div");
-      playerdata.appendChild(playerUI);
-      this.players.push(new Player(color, playerUI));
-      this.colorIndex[color] = index;
+    this.players.forEach((player, index) => {
+      this.colorIndex[player.color] = index;
     });
 
     for (const key in tileGrid.grid) {
       if (tileGrid.grid.hasOwnProperty(key)) {
-        renderService.addElement("tile", tileGrid.grid[key]);
+        renderService.addElement(RenderLayers.TILE, tileGrid.grid[key]);
       }
     }
 
@@ -838,50 +861,51 @@ class LocalGameHandler implements ClickEventResolver {
   }
 
   resolve(clickEvent: ClickEvent) {
+    let move = {};
+    let moveType = null;
+
     if (clickEvent.clickable instanceof Building) {
       const building = clickEvent.clickable as Building;
-      this.updateGame({
-        turn: this.turn,
-        playerColor: this.players[this.currentPlayerIndex].color,
-        move: {
-          id: building.id,
-          action:
-            building.state === BuildingState.UNDEVELOPED
-              ? BuildingActions.BUILD_SETTLEMENT
-              : BuildingActions.BUILD_CITY,
-        },
-        moveType: MoveType.BUILDING,
-      });
+      move = {
+        id: building.id,
+        action:
+          building.state === BuildingState.UNDEVELOPED
+            ? BuildingActions.BUILD_SETTLEMENT
+            : BuildingActions.BUILD_CITY,
+      };
+      moveType = MoveType.BUILDING;
     } else if (clickEvent.clickable instanceof Road) {
       const road = clickEvent.clickable as Road;
-      this.updateGame({
-        turn: this.turn,
-        playerColor: this.players[this.currentPlayerIndex].color,
-        move: {
-          id: road.id,
-          action: RoadActions.BUILD_ROAD,
-        },
-        moveType: MoveType.ROAD,
-      });
+      move = {
+        id: road.id,
+        action: RoadActions.BUILD_ROAD,
+      };
+      moveType = MoveType.ROAD;
+    } else {
+      throw new GameError(`Unknown click event`);
     }
+
+    this.updateGame({
+      turn: this.turn,
+      playerColor: this.players[this.currentPlayerIndex].color,
+      move: move,
+      moveType: moveType,
+    });
   }
 
-  updateGame(gameMove: GameMove) {
+  private updateGame(gameMove: GameMove) {
     try {
-      if (
-        gameMove.playerColor !== this.players[this.currentPlayerIndex].color &&
-        gameMove.moveType !== MoveType.TRADE
+      if (gameMove.moveType !== MoveType.TRADE) {
+        this.handleMove(gameMove);
+      } else if (
+        gameMove.playerColor !== this.players[this.currentPlayerIndex].color ||
+        gameMove.turn !== this.turn
       )
         throw new GameError(
           `${gameMove.playerColor} tried to move during ${
             this.players[this.currentPlayerIndex].color
           } turn.`
         );
-      else if (gameMove.turn !== this.turn) {
-        throw new GameError(
-          `${gameMove.playerColor}'s turn is out of sync, ${this.turn} (local), ${gameMove.turn} (player)`
-        );
-      }
       if (this.turn === 0) {
         this.handleFirstMove(gameMove);
       } else {
@@ -890,6 +914,8 @@ class LocalGameHandler implements ClickEventResolver {
         }
         this.handleMove(gameMove);
       }
+
+      // Push move onto movestack after done successfully
       this.moveStack.push(gameMove);
     } catch (error) {
       if (error instanceof GameError) {
@@ -898,10 +924,28 @@ class LocalGameHandler implements ClickEventResolver {
         console.error("Unknown Error: ", error.message);
       }
     }
+    this.playerView.displayView(this.moveStack, this.diceRolled);
   }
 
-  diceRoll(rollNumber: number) {
-    if (this.diceRolled) throw new GameError("Only one dice roll per turn");
+  // Pushes an end turn move onto the move stack
+  public endTurnMove(playerColor: PlayerColors) {
+    this.updateGame({
+      turn: this.turn,
+      playerColor: playerColor,
+      move: {},
+      moveType: MoveType.END_PLAYER_TURN,
+    });
+  }
+
+  // Pushes a series of bank trade moves onto the move stack
+  public diceRoll(rollNumber: number, playerColor: string) {
+    if (
+      this.diceRolled ||
+      playerColor !== this.players[this.currentPlayerIndex].color ||
+      this.turn === 0
+    )
+      throw new GameError("Invalid dice roll");
+
     this.diceRolled = true;
     for (const key in tileGrid.grid) {
       if (Object.prototype.hasOwnProperty.call(tileGrid.grid, key)) {
@@ -935,6 +979,7 @@ class LocalGameHandler implements ClickEventResolver {
       case MoveType.ROAD:
         const roadMove = gameMove.move as RoadMove;
         if (
+          this.moveStack.length === 0 ||
           this.moveStack[this.moveStack.length - 1].moveType === MoveType.ROAD
         ) {
           throw new GameError("Build building first");
@@ -977,22 +1022,22 @@ class LocalGameHandler implements ClickEventResolver {
         );
 
         if (this.firstRoundPlaced) {
-          this.buildings[buildMove.id].adjacentTiles.forEach((tile) =>
-            this.updateGame({
-              turn: this.turn,
-              playerColor: gameMove.playerColor,
-              move: {
-                withPlayer: "bank",
-                resourceExchange: [
-                  {
+          this.updateGame({
+            turn: this.turn,
+            playerColor: gameMove.playerColor,
+            move: {
+              withPlayer: "bank",
+              resourceExchange: this.buildings[buildMove.id].adjacentTiles.map(
+                (tile) => {
+                  return {
                     resource: tile.resourceType,
                     quantity: 1,
-                  },
-                ],
-              },
-              moveType: MoveType.TRADE,
-            })
-          );
+                  };
+                }
+              ),
+            },
+            moveType: MoveType.TRADE,
+          });
         }
 
         break;
@@ -1084,10 +1129,7 @@ class LocalGameHandler implements ClickEventResolver {
             moveType: MoveType.TRADE,
           };
           this.handleMove(buildTrade);
-          this.buildings[buildMove.id].buildCity(
-            gameMove.playerColor,
-            gameMove.turn
-          );
+          this.buildings[buildMove.id].buildCity(gameMove.playerColor);
         }
 
         break;
@@ -1131,6 +1173,42 @@ class LocalGameHandler implements ClickEventResolver {
   }
 }
 
+class ClientGameHandler implements ClickEventResolver {
+  private moveStack: GameMove[];
+  private player: Player;
+
+  private pushPossibleGameMove(gameMove: GameMove) {}
+
+  resolve(clickEvent: ClickEvent) {
+    if (clickEvent.clickable instanceof Building) {
+      const building = clickEvent.clickable as Building;
+      this.pushPossibleGameMove({
+        turn: this.moveStack.at(-1).turn + 1,
+        playerColor: this.player.color,
+        move: {
+          id: building.id,
+          action:
+            building.state === BuildingState.UNDEVELOPED
+              ? BuildingActions.BUILD_SETTLEMENT
+              : BuildingActions.BUILD_CITY,
+        },
+        moveType: MoveType.BUILDING,
+      });
+    } else if (clickEvent.clickable instanceof Road) {
+      const road = clickEvent.clickable as Road;
+      this.pushPossibleGameMove({
+        turn: this.moveStack.at(-1).turn + 1,
+        playerColor: this.player.color,
+        move: {
+          id: road.id,
+          action: RoadActions.BUILD_ROAD,
+        },
+        moveType: MoveType.ROAD,
+      });
+    }
+  }
+}
+
 // {
 //   "turn": 0,
 //   "playerColor": "red",
@@ -1140,7 +1218,7 @@ class LocalGameHandler implements ClickEventResolver {
 //   },
 //   "moveType": 1
 // }
-
+// Logic for deserializing a game move
 function mapToGameMove(move: any) {
   const result = {
     turn: move.turn,
@@ -1166,6 +1244,47 @@ function mapToGameMove(move: any) {
 
 ////////////////////////////////////////////////////////////////////////////////////
 
+// init logic, to be determined based on host or joinee
+
+canvas.width = 2160;
+canvas.height = 1440;
+canvas.style.width = "1080px";
+canvas.style.height = "720px";
+
+enum ResourceType {
+  BRICK = "Tomato",
+  WHEAT = "#FFBF00",
+  CATTLE = "MediumSeaGreen",
+  ORE = "lightgray",
+  WOOD = "green",
+  DESERT = "gray",
+}
+
+const ResourceGraphics = {
+  Tomato: "🧱",
+  "#FFBF00": "🌾",
+  MediumSeaGreen: "🐄",
+  lightgray: "🪨",
+  green: "🪵",
+};
+
+enum PlayerColors {
+  WHITE = "White",
+  RED = "Red",
+  BLACK = "Black",
+  GREEN = "Green",
+  BLUE = "Blue",
+  YELLOW = "Yellow",
+}
+
+const resourceTileWeights = [
+  { resource: ResourceType.BRICK, weight: 0.2 },
+  { resource: ResourceType.WHEAT, weight: 0.2 },
+  { resource: ResourceType.CATTLE, weight: 0.2 },
+  { resource: ResourceType.ORE, weight: 0.2 },
+  { resource: ResourceType.WOOD, weight: 0.2 },
+];
+
 const resourceGenerator = new TileResourceDistributer(resourceTileWeights);
 
 const renderService = new RenderService(ctx, [
@@ -1190,27 +1309,52 @@ Object.keys(ResourceType).forEach((key) => {
   resourceCounts[value] = 19;
 });
 
+// Init players
+const playerColorsForGame = [PlayerColors.RED, PlayerColors.BLUE];
+const players: { [playerColors: string]: Player } = {};
+const playerUIs: { [playerColors: string]: HTMLElement } = {};
+
+playerColorsForGame.forEach((color) => {
+  players[color] = new Player(color);
+});
+
+const rollDiceTurnButton = document.getElementById("roll-dice");
+const endTurnButton = document.getElementById("end-turn");
+
+const localColor = PlayerColors.RED;
+const bank = new Bank(resourceCounts);
 const gameHandler = new LocalGameHandler(
-  [PlayerColors.RED, PlayerColors.BLUE],
+  Object.values(players),
   buildings,
   roads,
   tileGrid,
-  new Bank(resourceCounts, document.getElementById("bank"))
+  bank,
+  new SinglePlayerView(
+    players[localColor],
+    bank,
+    rollDiceTurnButton,
+    endTurnButton
+  )
 );
 
-const endTurnButton = document.getElementById("end-turn");
-endTurnButton.addEventListener("", () => {});
+rollDiceTurnButton.addEventListener("click", (event: MouseEvent) => {
+  gameHandler.diceRoll(Math.floor(Math.random() * 12) + 1, localColor);
+});
+
+endTurnButton.addEventListener("click", (event: MouseEvent) => {
+  gameHandler.endTurnMove(localColor);
+});
 
 const clickHandler = new ClickHandler(canvas, gameHandler);
 
 buildings.forEach((building) => {
   clickHandler.addClickable(building);
-  renderService.addElement("vertex", building);
+  renderService.addElement(RenderLayers.VERTEX, building);
 });
 
 roads.forEach((road) => {
   clickHandler.addClickable(road);
-  renderService.addElement("edge", road);
+  renderService.addElement(RenderLayers.EDGE, road);
 });
 
 const game = new Game(renderService);
